@@ -9,6 +9,7 @@ falls back to KubeArchive.  KubeArchive is resolved in order of:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -205,12 +206,118 @@ def _build_api_client(context: str | None) -> Any:
     return DynamicClient(kubernetes_client.ApiClient(configuration))
 
 
-def _build_ka_client_from_host(main_cfg: Any, host: str) -> Any:
-    """Build a DynamicClient for a KubeArchive API host.
+class _KubeArchiveResource:
+    """Path token for one KubeArchive resource (DynamicClient Resource stand-in)."""
 
-    Reuses the authentication (bearer token / certs) from the main cluster
-    configuration; KubeArchive's apiserver authenticates via TokenReview
-    against the cluster it fronts, so the same token works.
+    __slots__ = ("group", "resource", "version")
+
+    def __init__(self, group: str, version: str, resource: str):
+        """Store the path parts of a KubeArchive resource request."""
+        self.group = group
+        self.version = version
+        self.resource = resource
+
+
+class _KubeArchiveResources:
+    """`resources` attribute of _KubeArchiveClient (DynamicClient-like)."""
+
+    def __init__(self, client: _KubeArchiveClient):
+        """Bind the finder to its owning client."""
+        self._client = client
+
+    def get(self, api_version: str = "", kind: str = "") -> _KubeArchiveResource:
+        """Resolve an api_version + kind to its KubeArchive path token.
+
+        KubeArchive serves archived objects under the resource's own
+        apiVersion (``/apis/<group>/<version>/...``, core under
+        ``/api/<version>/...``), so group/version split the api_version and
+        the path uses the plural lowercase resource name.  No network access
+        happens here (the token only carries path parts).
+        """
+        if "/" in api_version:
+            group, version = api_version.split("/", 1)
+        else:
+            group, version = "", api_version
+        # Kinds handled by plrtool pluralize with a plain trailing "s";
+        # anything else falls back to lowercase + "s" as a best effort.
+        plural = {"PipelineRun": "pipelineruns", "TaskRun": "taskruns", "Pod": "pods"}.get(
+            kind, f"{kind.lower()}s"
+        )
+        return _KubeArchiveResource(group, version, plural)
+
+
+class _KubeArchiveClient:
+    """DynamicClient-compatible adapter for the KubeArchive API.
+
+    KubeArchive (Web API) serves archived objects at the object's own
+    apiVersion path (``/apis/<group>/<version>/namespaces/<ns>/<plural>/<name>``,
+    core under ``/api/<version>/...``) and exposes NO Kubernetes discovery
+    endpoints (``/version``, ``/api``, ``/apis`` all 404).  A stock
+    DynamicClient would die on construction because its eager discovery
+    requests ``/version`` first.  This adapter exposes just the DynamicClient
+    surface plrtool uses (``resources.get`` + ``get``) over a plain
+    authenticated ``kubernetes.client.ApiClient``.
+    """
+
+    def __init__(self, api_client: Any):
+        """Wrap a plain kubernetes ApiClient pointed at the KubeArchive host."""
+        self.client = api_client
+        self.configuration = api_client.configuration
+
+    @property
+    def resources(self) -> _KubeArchiveResources:
+        """Finder for resource path tokens (mirrors DynamicClient.resources)."""
+        return _KubeArchiveResources(self)
+
+    def get(self, resource: _KubeArchiveResource, namespace: str = "", name: str = "") -> dict:
+        """Fetch one archived object as a plain dict; 404 raises ApiException.
+
+        The request goes through the ApiClient so the bearer token / client
+        certs from the main cluster configuration are applied, the same way
+        DynamicClient talks to a live cluster.
+        """
+        if resource.group:
+            path = (
+                f"/apis/{resource.group}/{resource.version}"
+                f"/namespaces/{namespace}/{resource.resource}/{name}"
+            )
+        else:
+            path = f"/api/{resource.version}/namespaces/{namespace}/{resource.resource}/{name}"
+        response = self.client.call_api(
+            path,
+            "GET",
+            header_params={"Accept": "application/json"},
+            auth_settings=["BearerToken"],
+            _preload_content=False,
+            _return_http_data_only=True,
+        )
+        return json.loads(response.data.decode("utf-8"))
+
+
+def _build_ka_client_from_context(context: str) -> Any:
+    """Build a KubeArchive client from a kubeconfig context (no discovery).
+
+    Raises ClusterError when the context cannot be loaded.
+    """
+    from kubernetes import client as kubernetes_client
+    from kubernetes import config as kubernetes_config
+
+    configuration = kubernetes_client.Configuration()
+    try:
+        kubernetes_config.load_kube_config(client_configuration=configuration, context=context)
+    except Exception as exc:
+        raise ClusterError(f"cannot load kubeconfig (context={context!r}): {exc}") from exc
+    return _KubeArchiveClient(kubernetes_client.ApiClient(configuration))
+
+
+def _build_ka_client_from_host(main_cfg: Any, host: str) -> Any:
+    """Build a KubeArchive client for a KubeArchive API host.
+
+    Returns a _KubeArchiveClient (plain ApiClient, no Kubernetes discovery -
+    KubeArchive has none and 404s ``/version`` outright).  Reuses the
+    authentication (bearer token / certs) from the main cluster configuration;
+    KubeArchive authenticates via TokenReview against the cluster it fronts,
+    so the same token works.
 
     A plain copy of the main configuration is NOT safe here: load_kube_config
     installs refresh_api_key_hook on it, and that hook re-applies the whole
@@ -220,7 +327,6 @@ def _build_ka_client_from_host(main_cfg: Any, host: str) -> Any:
     cluster).  We copy the auth/TLS fields we actually need instead.
     """
     from kubernetes import client as kubernetes_client
-    from kubernetes.dynamic import DynamicClient
 
     ka_cfg = kubernetes_client.Configuration()
     ka_cfg.host = host if host.startswith(("http://", "https://")) else f"https://{host}"
@@ -243,7 +349,7 @@ def _build_ka_client_from_host(main_cfg: Any, host: str) -> Any:
                 logger.debug(
                     "could not copy auth config attr %s onto KubeArchive client: %s", attr, exc
                 )
-    return DynamicClient(kubernetes_client.ApiClient(ka_cfg))
+    return _KubeArchiveClient(kubernetes_client.ApiClient(ka_cfg))
 
 
 def _to_plain_dict(obj: Any) -> dict:
@@ -280,7 +386,7 @@ class Cluster:
         """Build the KubeArchive client (or None when none is configured)."""
         if self.ka_context:
             try:
-                client = _build_api_client(self.ka_context)
+                client = _build_ka_client_from_context(self.ka_context)
             except ClusterError as exc:
                 raise ClusterError(
                     f"requested KubeArchive context not in kubeconfig: {self.ka_context}"
@@ -294,7 +400,7 @@ class Cluster:
         context = _find_ka_context()
         if context:
             logger.info("using KubeArchive context (auto): %s", context)
-            return _build_api_client(context)
+            return _build_ka_client_from_context(context)
         return None
 
     @property

@@ -1,11 +1,32 @@
 """Unit tests for cluster access: KubeArchive config resolution and API-version probing."""
 
+import json
+import types
+
 import yaml
+from helpers import FakeDynClient
 
 import plrtool
-from plrtool.cluster import Cluster, _ka_conf_host, _build_ka_client_from_host
+from plrtool.cluster import Cluster, _build_ka_client_from_host, _ka_conf_host
 
-from helpers import FakeDynClient
+
+class FakeKaApiClient:
+    """Plain-ApiClient stand-in for _KubeArchiveClient (no network)."""
+
+    def __init__(self, fail_with=()):
+        self.configuration = types.SimpleNamespace(host="https://ka.example")
+        self.fail_with = set(fail_with)
+        self.calls = []
+
+    def call_api(self, path, method, **kwargs):
+        self.calls.append((path, method, kwargs))
+        if path in self.fail_with:
+            from kubernetes.client.rest import ApiException
+
+            raise ApiException(status=404)
+        return types.SimpleNamespace(
+            data=json.dumps({"metadata": {"name": "x"}, "ok": True}).encode()
+        )
 
 
 SAMPLE_KA_CONF = {
@@ -130,15 +151,6 @@ def test_ka_client_does_not_get_host_re_stamped_by_refresh_hook(monkeypatch):
         conf.api_key["BearerToken"] = "Bearer test-token"
 
     main_cfg.refresh_api_key_hook = evil_refresh
-    # avoid eager discovery network calls in the DynamicClient constructor
-    from kubernetes import dynamic as dynamic_module
-
-    class NoDiscoverDynamicClient(dynamic_module.client.DynamicClient):
-        def __init__(self, client, cache_file=None, discoverer=None):
-            self.client = client
-            self.configuration = client.configuration
-
-    monkeypatch.setattr(dynamic_module, "DynamicClient", NoDiscoverDynamicClient)
     client = _build_ka_client_from_host(main_cfg, ka_host)
     cfg = client.client.configuration
     assert cfg.host == ka_host
@@ -146,3 +158,41 @@ def test_ka_client_does_not_get_host_re_stamped_by_refresh_hook(monkeypatch):
     assert cfg.get_api_key_with_prefix("BearerToken") == "Bearer test-token"
     # host must NOT have been re-stamped to the live cluster
     assert cfg.host == ka_host
+
+
+def test_ka_client_builds_grouped_and_core_urls():
+    from plrtool.cluster import _KubeArchiveClient
+
+    api = FakeKaApiClient()
+    client = _KubeArchiveClient(api)
+    client.get(
+        client.resources.get(api_version="tekton.dev/v1", kind="PipelineRun"),
+        namespace="ns-1",
+        name="plr-1",
+    )
+    client.get(
+        client.resources.get(api_version="tekton.dev/v1beta1", kind="TaskRun"),
+        namespace="ns-1",
+        name="tr-1",
+    )
+    client.get(client.resources.get(api_version="v1", kind="Pod"), namespace="ns-1", name="pod-1")
+    paths = [path for path, _, _ in api.calls]
+    assert paths == [
+        "/apis/tekton.dev/v1/namespaces/ns-1/pipelineruns/plr-1",
+        "/apis/tekton.dev/v1beta1/namespaces/ns-1/taskruns/tr-1",
+        "/api/v1/namespaces/ns-1/pods/pod-1",
+    ]
+    assert api.calls[0][2]["auth_settings"] == ["BearerToken"]
+
+
+def test_get_from_ka_client_falls_through_api_versions_on_404():
+    from plrtool.cluster import _KubeArchiveClient
+
+    api = FakeKaApiClient(fail_with=("/apis/tekton.dev/v1/namespaces/ns-1/pipelineruns/plr-1",))
+    obj = Cluster._get_from(_KubeArchiveClient(api), "pipelinerun", "ns-1", "plr-1")
+    assert obj["ok"] is True
+    paths = [path for path, _, _ in api.calls]
+    assert paths == [
+        "/apis/tekton.dev/v1/namespaces/ns-1/pipelineruns/plr-1",
+        "/apis/tekton.dev/v1beta1/namespaces/ns-1/pipelineruns/plr-1",
+    ]
