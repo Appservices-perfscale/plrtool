@@ -1,12 +1,8 @@
-<!--
-SPDX-FileCopyrightText: Copyright (C) 2026 jhutar
-SPDX-License-Identifier: Apache-2.0
--->
 # plrtool
 
-PipelineRun toolkit for kube-shard load tests. Replaces a set of shell/Python
-helpers (`collect-plrs.sh`, `check-timings.sh`, `check-errors.sh`,
-`wait-to-finish.sh`, ...) with one CLI.
+PipelineRun toolkit is a CLI tool for downloading Tekton PipelineRuns
+(& it's TaskRuns and it's pods and it's container logs), waiting for it to
+finish and exploring their duration and errors.
 
 ## Install
 
@@ -48,9 +44,9 @@ collected-pod-NAME.json
 pod-POD-CONTAINER.log
 ```
 
-`managedFields` are stripped on dump; legacy `{items:[...]}` YAML cache files
-are still read (and re-dumped as JSON). `timing`/`errors` are offline: they
-only read what is already in the cache.
+`managedFields` are stripped on dump.
+YAML cache files with `{items:[...]}` are still read (and re-dumped as JSON).
+`timing`/`errors` are offline: they only read what is already in the cache.
 
 ## Development
 
