@@ -20,3 +20,13 @@ plrtool.log
 
 # Local / agent-specific
 .specify/
+.agentready/
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+*.orig
+.DS_Store
+.env
