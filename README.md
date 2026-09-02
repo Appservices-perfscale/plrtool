@@ -68,6 +68,7 @@ src/plrtool/          Python package (src layout)
   cluster.py          Kubernetes / KubeArchive access
   cache.py            on-disk JSON cache + in-memory records
   records.py          manifest -> record dataclasses
+  graph.py            Run Graph assembly seam (PLR -> TaskRun -> Pod)
   targets.py          target selectors (--namespace/--plr, --csv)
   options.py          subcommand option dataclasses
   utils.py            pure helpers (time, stats, normalization)

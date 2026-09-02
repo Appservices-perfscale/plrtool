@@ -15,6 +15,7 @@ from pathlib import Path
 
 import yaml
 
+from .graph import link_run_graph
 from .records import PLRRecord, PodRecord, TaskRunRecord, parse_plr, parse_pod, parse_taskrun
 
 logger = logging.getLogger("plrtool")
@@ -187,12 +188,7 @@ class CacheStore:
             self.taskruns[doc.get("metadata", {}).get("name") or _path.stem] = parse_taskrun(doc)
         for _path, doc in self._objects("pod"):
             self.pods[doc.get("metadata", {}).get("name") or _path.stem] = parse_pod(doc)
-        # Link TaskRuns and Pods onto PLRs for per-run analysis.
-        for plr in self.plrs.values():
-            for tr_name in plr.tr_refs:
-                tr = self.taskruns.get(tr_name)
-                if tr is not None:
-                    plr.taskruns.append(tr)
-                    if tr.pod_name:
-                        tr.pod = self.pods.get(tr.pod_name)
+        # Assemble the Run Graph (PLR -> TaskRun -> Pod) via the shared seam so
+        # offline analysis links exactly like the online collector does.
+        link_run_graph(self.plrs, self.taskruns, self.pods)
         return self

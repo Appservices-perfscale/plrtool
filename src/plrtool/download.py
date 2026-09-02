@@ -15,6 +15,7 @@ from .cache import CacheStore
 from .cluster import Cluster
 from .errors import run_errors
 from .exceptions import ClusterError
+from .graph import link_plr_taskruns
 from .log import logger
 from .options import DownloadOptions, TimingOptions, WaitOptions
 from .records import PLRRecord, parse_plr
@@ -77,7 +78,10 @@ def _fetch_details(store: CacheStore, cluster: Cluster, plr: PLRRecord, target: 
     """Fetch TaskRuns, Pods and container logs for a PLR and link the records.
 
     Already-cached TaskRun/Pod/log files are reused instead of re-fetching
-    (same cached-wins policy as collect_plr_manifest).
+    (same cached-wins policy as collect_plr_manifest).  The PLR -> TaskRun ->
+    Pod graph is assembled through the shared ``link_plr_taskruns`` seam - the
+    same one the offline ``CacheStore.load()`` uses - so the in-memory picture
+    of a cache cannot drift from a later offline load of the same directory.
     """
     for tr_name in plr.tr_refs:
         raw_tr = store.read_cached_object("taskrun", tr_name)
@@ -87,7 +91,6 @@ def _fetch_details(store: CacheStore, cluster: Cluster, plr: PLRRecord, target: 
             logger.warning("TaskRun %s/%s not found; skipping", target.namespace, tr_name)
             continue
         tr = store.add_taskrun(raw_tr, target.namespace)
-        plr.taskruns.append(tr)
         pod_name = tr.pod_name
         if not pod_name:
             continue
@@ -97,13 +100,14 @@ def _fetch_details(store: CacheStore, cluster: Cluster, plr: PLRRecord, target: 
         if raw_pod is None:
             logger.warning("Pod %s/%s not found; skipping", target.namespace, pod_name)
         else:
-            tr.pod = store.add_pod(raw_pod, target.namespace)
-        for container in *(step.container for step in tr.steps if step.container), *tr.sidecars:
+            store.add_pod(raw_pod, target.namespace)
+        for container in tr.log_containers:
             text = store.read_cached_log(pod_name, container)
             if text is None:
                 text = cluster.get_logs(target.namespace, pod_name, container)
             if text is not None:
                 store.add_log(pod_name, container, text)
+    link_plr_taskruns(plr, store.taskruns, store.pods)
 
 
 def collect_one(

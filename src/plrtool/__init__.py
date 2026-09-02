@@ -64,6 +64,7 @@ from .errors import (
     run_errors,
 )
 from .exceptions import ClusterError, PlrtoolError
+from .graph import link_plr_taskruns, link_run_graph
 from .options import DownloadOptions, TimingOptions, WaitOptions
 from .records import (
     ContainerStatusRecord,
@@ -158,6 +159,8 @@ __all__ = [
     "fmt_ts",
     "get_selectors",
     "ka_host_for_cluster",
+    "link_plr_taskruns",
+    "link_run_graph",
     "load_ka_conf",
     "main",
     "normalize_message",

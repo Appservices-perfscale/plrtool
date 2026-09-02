@@ -83,6 +83,11 @@ class TaskRunRecord:
     steps: list[StepRecord] = field(default_factory=list)
     sidecars: list = field(default_factory=list)  # container names
 
+    @property
+    def log_containers(self) -> list[str]:
+        """Container names to fetch logs for: step containers, then sidecars."""
+        return [step.container for step in self.steps if step.container] + list(self.sidecars)
+
 
 @dataclass
 class PLRRecord:
