@@ -46,3 +46,4 @@ class TimingOptions:
 
     gantt_chart: str | None = None
     summary: str | None = None
+    details: bool = False

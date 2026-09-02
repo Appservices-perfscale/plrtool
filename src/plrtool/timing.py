@@ -144,7 +144,6 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
     gantt = _Gantt()
 
     for rec in plrs:
-        _print_plr_header(rec)
         pr_created = epoch_of(rec.created)
         pr_started = epoch_of(rec.started)
         pr_completed = epoch_of(rec.completed)
@@ -170,25 +169,29 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
         if rec.started is not None:
             gantt.add(f"PLR {rec.name} run", rec.started, rec.completed, 1)
 
+        if options.details:
+            _print_plr_header(rec)
+
         trs_earliest: dt.datetime | None = None
         for tr in sorted(
             rec.taskruns, key=lambda item: item.created or dt.datetime.min.replace(tzinfo=dt.UTC)
         ):
             if tr.created is not None and (trs_earliest is None or tr.created < trs_earliest):
                 trs_earliest = tr.created
-            _print_tr(tr)
+            if options.details:
+                _print_tr(tr)
             gantt.add(f"TR {tr.pipeline_task}", tr.created, tr.completed, 0)
             if tr.started is not None:
                 gantt.add(f"TR {tr.pipeline_task} run", tr.started, tr.completed, 1)
             if tr.steps:
-                print(f"     {YELLOW}Steps:{RESET}")
                 first_step: dt.datetime | None = None
                 for step in tr.steps:
                     duration = duration_seconds(step.started_at, step.finished_at)
                     reason = step.reason or "n/a"
-                    print(
-                        f"       {step.name!s:<35} {('n/a' if duration is None else str(duration) + 's'):>5}  {reason}"
-                    )
+                    if options.details:
+                        print(
+                            f"       {step.name!s:<35} {('n/a' if duration is None else str(duration) + 's'):>5}  {reason}"
+                        )
                     gantt.add(f"Step {step.name}", step.started_at, step.finished_at, 1)
                     if step.started_at is not None and (
                         first_step is None or step.started_at < first_step
@@ -197,19 +200,23 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
                 if first_step is not None and tr.created is not None:
                     tr_wait = int((first_step - tr.created).total_seconds())
                     stat_waiting_time += tr_wait
-                    print(
-                        f"     {YELLOW}TaskRun wait time (creation to first step): {tr_wait}s{RESET}"
-                    )
-            if tr.pod is not None:
+                    if options.details:
+                        print(
+                            f"     {YELLOW}TaskRun wait time (creation to first step): {tr_wait}s{RESET}"
+                        )
+            if options.details and tr.pod is not None:
                 _print_pod(tr.pod)
-            print()
+            if options.details:
+                print()
         if rec.created is not None and trs_earliest is not None:
             plr_wait = int((trs_earliest - rec.created).total_seconds())
             stat_waiting_time += plr_wait
-            print(
-                f" ⤷ {YELLOW}PipelineRun wait time (creation to first TaskRun): {plr_wait}s{RESET}"
-            )
-        print()
+            if options.details:
+                print(
+                    f" ⤷ {YELLOW}PipelineRun wait time (creation to first TaskRun): {plr_wait}s{RESET}"
+                )
+        if options.details:
+            print()
 
     if options.gantt_chart:
         gantt.render(options.gantt_chart)
@@ -309,5 +316,7 @@ def _write_summary(
 def cmd_timing(args: argparse.Namespace) -> int:
     """CLI entry for 'timing'."""
     store = CacheStore(Path(args.cache)).load()
-    options = TimingOptions(gantt_chart=args.gantt_chart, summary=args.summary)
+    options = TimingOptions(
+        gantt_chart=args.gantt_chart, summary=args.summary, details=args.details
+    )
     return run_timing(store, options)

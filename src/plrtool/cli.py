@@ -63,6 +63,9 @@ def add_timing_output_args(parser: argparse.ArgumentParser) -> None:
         metavar="FILE",
         help="write aggregate timing stats as JSON to this file (only when requested)",
     )
+    parser.add_argument(
+        "--details", action="store_true", help="print per-PipelineRun timing detail lines"
+    )
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

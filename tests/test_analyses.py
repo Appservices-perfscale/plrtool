@@ -46,6 +46,29 @@ def test_run_timing_empty_store(tmp_path):
     assert run_timing(CacheStore(tmp_path), TimingOptions()) == 0
 
 
+def test_run_timing_per_pr_detail_gated_by_details(tmp_path, capsys):
+    store = CacheStore(tmp_path)
+    store.add_plr(
+        raw_plr(
+            "ok-1",
+            created="2026-08-13T10:00:00Z",
+            started="2026-08-13T10:00:10Z",
+            completed="2026-08-13T10:00:40Z",
+        )
+    )
+    # Default: summary and totals only, no per-PR header lines.
+    run_timing(store, TimingOptions())
+    out = capsys.readouterr().out
+    assert "PipelineRun 'ok-1'" not in out
+    assert "=== Summary" in out
+    # --details: per-PR duration header lines are printed.
+    run_timing(store, TimingOptions(details=True))
+    out = capsys.readouterr().out
+    assert "PipelineRun 'ok-1' (" in out
+    assert "pending=10" in out
+    assert "total=40" in out
+
+
 def test_run_errors_histograms_and_classification(tmp_path):
     store = CacheStore(tmp_path)
     store.add_plr(
