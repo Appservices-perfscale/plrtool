@@ -1,0 +1,21 @@
+[project]
+name = "plrtool"
+version = "0.1.0"
+description = "PipelineRun toolkit for kube-shard load tests: wait, download/cache, timing, errors"
+requires-python = ">=3.12"
+dependencies = [
+    "kubernetes",
+    "matplotlib",
+    "pyyaml",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["test_plrtool.py"]
+
+[tool.black]
+line-length = 100
