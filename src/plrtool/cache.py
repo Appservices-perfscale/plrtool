@@ -25,7 +25,7 @@ __all__ = ["CacheStore", "strip_managed_fields"]
 # ---------------------------------------------------------------------------
 
 
-def strip_managed_fields(obj) -> object:
+def strip_managed_fields(obj: object) -> object:
     """Recursively remove every 'managedFields' key (metadata bloat)."""
     if isinstance(obj, dict):
         return {

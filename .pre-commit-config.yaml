@@ -25,6 +25,15 @@ repos:
       - id: ruff
         args: [--fix]
       - id: ruff-format
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.3.1
+    hooks:
+      - id: mypy
+        args: [src/plrtool]
+        pass_filenames: false
+        additional_dependencies:
+          - types-PyYAML
+          - matplotlib
   - repo: https://github.com/PyCQA/bandit
     rev: "1.9.4"
     hooks:

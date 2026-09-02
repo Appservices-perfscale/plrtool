@@ -47,5 +47,8 @@ jobs:
       - name: Tests (pytest)
         run: make test
 
+      - name: Type check (mypy)
+        run: make typecheck
+
       - name: Dependency audit (uv/OSV)
         run: make audit

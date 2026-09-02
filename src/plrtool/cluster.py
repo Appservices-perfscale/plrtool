@@ -14,6 +14,7 @@ import os
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -190,7 +191,7 @@ def _find_ka_context() -> str | None:
     return None
 
 
-def _build_api_client(context: str | None):
+def _build_api_client(context: str | None) -> Any:
     """Build a Kubernetes DynamicClient from a kubeconfig context (or current)."""
     from kubernetes import client as kubernetes_client
     from kubernetes import config as kubernetes_config
@@ -204,7 +205,7 @@ def _build_api_client(context: str | None):
     return DynamicClient(kubernetes_client.ApiClient(configuration))
 
 
-def _build_ka_client_from_host(main_cfg, host: str):
+def _build_ka_client_from_host(main_cfg: Any, host: str) -> Any:
     """Build a DynamicClient for a KubeArchive API host.
 
     Reuses the authentication (bearer token / certs) from the main cluster
@@ -245,7 +246,7 @@ def _build_ka_client_from_host(main_cfg, host: str):
     return DynamicClient(kubernetes_client.ApiClient(ka_cfg))
 
 
-def _to_plain_dict(obj) -> dict:
+def _to_plain_dict(obj: Any) -> dict:
     """Convert a Kubernetes client response object into a plain dict."""
     to_dict = getattr(obj, "to_dict", None)
     if callable(to_dict):
@@ -275,7 +276,7 @@ class Cluster:
 
         self.core = kubernetes_client.CoreV1Api(self.dyn.client)
 
-    def _resolve_ka_client(self):
+    def _resolve_ka_client(self) -> Any:
         """Build the KubeArchive client (or None when none is configured)."""
         if self.ka_context:
             try:
@@ -304,7 +305,7 @@ class Cluster:
             yield self.ka_dyn, "kubearchive"
 
     @staticmethod
-    def _get_from(client, kind: str, namespace: str, name: str) -> dict:
+    def _get_from(client: Any, kind: str, namespace: str, name: str) -> dict:
         from kubernetes.client.rest import ApiException
 
         api_versions, kubernetes_kind = KIND_API[kind]

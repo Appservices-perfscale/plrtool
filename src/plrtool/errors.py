@@ -5,11 +5,12 @@ from __future__ import annotations
 import argparse
 import re
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 from pathlib import Path
 
 from .cache import CacheStore
 from .constants import BLUE, RED, RESET, YELLOW
-from .records import TaskRunRecord
+from .records import PLRRecord, PodRecord, TaskRunRecord
 from .utils import MISSING, normalize_message
 
 __all__ = [
@@ -25,9 +26,9 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-def collect_plr_conditions(plrs) -> Counter:
+def collect_plr_conditions(plrs: Iterable[PLRRecord]) -> Counter[tuple[str, str, str]]:
     """Count (status, reason, normalized message) across PipelineRuns."""
-    histogram = Counter()
+    histogram: Counter[tuple[str, str, str]] = Counter()
     for rec in plrs:
         if rec.succeeded_status == "True" and rec.succeeded_reason == "Succeeded":
             continue
@@ -41,9 +42,11 @@ def collect_plr_conditions(plrs) -> Counter:
     return histogram
 
 
-def collect_taskrun_conditions(taskruns) -> defaultdict:
+def collect_taskrun_conditions(
+    taskruns: Iterable[TaskRunRecord],
+) -> defaultdict[str, Counter[tuple[str, str, str]]]:
     """Count (status, reason, message) per pipelineTask name across TaskRuns."""
-    histograms = defaultdict(Counter)
+    histograms: defaultdict[str, Counter[tuple[str, str, str]]] = defaultdict(Counter)
     for tr in taskruns:
         if tr.succeeded_status == "True" and tr.succeeded_reason == "Succeeded":
             continue
@@ -57,12 +60,19 @@ def collect_taskrun_conditions(taskruns) -> defaultdict:
     return histograms
 
 
-def collect_pod_data(pods):
+def collect_pod_data(
+    pods: Iterable[PodRecord],
+) -> tuple[
+    Counter[str],
+    defaultdict[str, Counter[str]],
+    defaultdict[str, Counter[str]],
+    Counter[tuple[str, str]],
+]:
     """Return (phases, terminated-reasons, waiting-reasons, false-conditions)."""
-    phases = Counter()
-    terminated = defaultdict(Counter)
-    waiting = defaultdict(Counter)
-    false_conditions = Counter()
+    phases: Counter[str] = Counter()
+    terminated: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    waiting: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    false_conditions: Counter[tuple[str, str]] = Counter()
     for pod in pods:
         phases[pod.phase or MISSING] += 1
         for container in pod.containers:
@@ -161,7 +171,7 @@ def _report_failed_taskrun(tr: TaskRunRecord) -> None:
             print()
 
 
-def classify_failures(records) -> None:
+def classify_failures(records: Iterable[PLRRecord]) -> None:
     """Classify root cause of every failed PLR (check-plr-errors.sh logic)."""
     failed = [rec for rec in records if rec.succeeded_status == "False"]
     for rec in failed:

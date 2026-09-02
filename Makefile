@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help bootstrap check check-all test audit
+.PHONY: help bootstrap check check-all test typecheck audit
 
 help:
 	@echo "Available targets:"
@@ -8,6 +8,7 @@ help:
 	@echo "  check       - Run checks on staged changes"
 	@echo "  check-all   - Run checks on all files"
 	@echo "  test        - Run the full pytest suite"
+	@echo "  typecheck   - Run static type checking (mypy)"
 	@echo "  audit       - Check dependencies for known vulnerabilities (uv audit/OSV)"
 
 bootstrap:
@@ -29,6 +30,9 @@ check-all:
 
 test:
 	uv run pytest -v
+
+typecheck:
+	uv run mypy src/plrtool
 
 audit:
 	uv audit
