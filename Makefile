@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help bootstrap check check-all test typecheck audit
+.PHONY: help bootstrap check check-all test typecheck coverage audit
 
 help:
 	@echo "Available targets:"
@@ -9,7 +9,8 @@ help:
 	@echo "  check-all   - Run checks on all files"
 	@echo "  test        - Run the full pytest suite"
 	@echo "  typecheck   - Run static type checking (mypy)"
-	@echo "  audit       - Check dependencies for known vulnerabilities (uv audit/OSV)"
+	@echo "  coverage    - Run pytest with coverage gate (fail_under)"
+	@echo "  audit       - Check dependencies for known vulnerabilities (uv audit/OSV + pip-audit)"
 
 bootstrap:
 	@echo "==> Installing Python 3.12 (via uv)..."
@@ -33,6 +34,9 @@ test:
 
 typecheck:
 	uv run mypy src/plrtool
+
+coverage:
+	uv run pytest --cov=plrtool --cov-report=term-missing --cov-report=xml
 
 audit:
 	uv audit

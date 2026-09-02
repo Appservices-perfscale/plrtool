@@ -23,6 +23,7 @@ dev = [
     "mypy>=2.3.1",
     "pip-audit>=2.10.1",
     "pytest",
+    "pytest-cov>=7.1.0",
     "types-pyyaml>=6.0.12.20260815",
 ]
 
@@ -45,6 +46,14 @@ show_error_codes = true
 [[tool.mypy.overrides]]
 module = "kubernetes.*"
 ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["plrtool"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 65
 
 [tool.ruff]
 line-length = 100
