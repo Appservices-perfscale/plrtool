@@ -6,10 +6,21 @@ Always validate changes with:
 
 ```bash
 make test        # run full pytest suite
-make check-all   # run all pre-commit checks (ruff, format, bandit, gitleaks, etc.)
+make check-all   # run all pre-commit checks (ruff, format, mypy, bandit, gitleaks, ...)
+make typecheck   # static type checking (mypy)
 ```
 
 Both must pass before committing. This is the preferred way to iterate during development.
+
+### Single-file verification
+
+Fast checks for one file (no full build):
+
+```bash
+uv run ruff check path/to/file.py          # lint
+uv run ruff format --check path/to/file.py # formatting
+uv run mypy path/to/file.py                # type-check (kubernetes imports are ignored)
+```
 
 ## Project structure
 

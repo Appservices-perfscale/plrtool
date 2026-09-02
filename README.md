@@ -56,7 +56,9 @@ only read what is already in the cache.
 
 ```bash
 make test        # full pytest suite
-make check-all   # all pre-commit checks (ruff, format, bandit, gitleaks, ...)
+make check-all   # all pre-commit checks (ruff, format, mypy, bandit, gitleaks, ...)
+make typecheck   # static type checking (mypy)
+make audit       # dependency vulnerability check (uv/OSV)
 ```
 
 ## Project layout
