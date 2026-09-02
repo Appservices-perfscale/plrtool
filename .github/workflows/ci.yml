@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: bootstrap / check-all / test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv + Python 3.12
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Configure uv tool bin dir (pre-commit) on env + PATH
+        run: |
+          echo "UV_TOOL_BIN_DIR=$HOME/.local/bin" >> "$GITHUB_ENV"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Cache pre-commit hook environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Bootstrap
+        run: make bootstrap
+
+      - name: "Checks (pre-commit: ruff, format, bandit, gitleaks, ...)"
+        run: make check-all
+
+      - name: Tests (pytest)
+        run: make test
