@@ -1,0 +1,148 @@
+"""Unit tests for cluster access: KubeArchive config resolution and API-version probing."""
+
+import yaml
+
+import plrtool
+from plrtool.cluster import Cluster, _ka_conf_host, _build_ka_client_from_host
+
+from helpers import FakeDynClient
+
+
+SAMPLE_KA_CONF = {
+    "kflux-ocp-p01": {
+        "server_url": "https://api.kflux-ocp-p01.7ayg.p1.openshiftapps.com:6443",
+        "host": "https://kubearchive-api-server-product-kubearchive.apps.kflux-ocp-p01.7ayg.p1.openshiftapps.com",
+    },
+    "stone-prd-rh01": {
+        "server_url": "https://api.stone-prd-rh01.pg1f.p1.openshiftapps.com:6443",
+        "host": "https://kubearchive-api-server-product-kubearchive.apps.stone-prd-rh01.pg1f.p1.openshiftapps.com",
+    },
+}
+
+
+def test_ka_host_for_cluster():
+    assert plrtool.ka_host_for_cluster(SAMPLE_KA_CONF, "kflux-ocp-p01").startswith(
+        "https://kubearchive-api-server"
+    )
+    assert plrtool.ka_host_for_cluster(SAMPLE_KA_CONF, "unknown-cluster") is None
+    assert plrtool.ka_host_for_cluster(SAMPLE_KA_CONF, None) is None
+    # a cluster entry that exists but has no host
+    assert plrtool.ka_host_for_cluster({"c": {"server_url": "https://x"}}, "c", "https://x") is None
+
+
+def test_ka_host_matches_by_server_url():
+    # kubeconfig cluster name is OCP-normalized (dots->dashes, +port); the conf
+    # key is the raw dotted hostname -> only the server_url can match them.
+    clusters = {
+        "c111-e.us-east.containers.cloud.ibm.com": {
+            "server_url": "https://c111-e.us-east.containers.cloud.ibm.com:32325",
+            "host": "https://kubearchive.example",
+        }
+    }
+    normalized_name = "c111-e-us-east-containers-cloud-ibm-com:32325"
+    server = "https://c111-e.us-east.containers.cloud.ibm.com:32325"
+    assert (
+        plrtool.ka_host_for_cluster(clusters, normalized_name, server)
+        == "https://kubearchive.example"
+    )
+
+
+def test_get_object_tries_all_api_versions():
+    # api_version probing order: v1 first, v1beta1 as fallback.
+    ka = FakeDynClient(
+        served_versions={"tekton.dev/v1", "tekton.dev/v1beta1"},
+        get_404_for={"tekton.dev/v1"},
+    )
+    obj = Cluster._get_from(ka, "pipelinerun", "ns-1", "plr-1")
+    assert obj["metadata"]["name"] == "plr-1"
+    versions = [call[1] for call in ka.calls if call[0] == "discover"]
+    assert versions == ["tekton.dev/v1", "tekton.dev/v1beta1"]
+
+
+def test_get_from_falls_through_to_v1beta1_only():
+    # v1 not in discovery at all -> falls through to v1beta1.
+    ka = FakeDynClient(served_versions={"tekton.dev/v1beta1"})
+    obj = Cluster._get_from(ka, "taskrun", "ns-1", "tr-1")
+    assert obj["metadata"]["name"] == "tr-1"
+    versions = [call[1] for call in ka.calls if call[0] == "discover"]
+    assert versions == ["tekton.dev/v1", "tekton.dev/v1beta1"]
+    assert "get" in [call[0] for call in ka.calls]
+
+
+def test_load_ka_conf(tmp_path):
+    path = tmp_path / "ka.conf"
+    path.write_text(
+        yaml.safe_dump({"clusters": {"k1": {"host": "https://ka.example"}}}), encoding="utf-8"
+    )
+    assert plrtool.load_ka_conf(str(path)) == {"k1": {"host": "https://ka.example"}}
+    bad = tmp_path / "bad.conf"
+    bad.write_text(yaml.safe_dump({"clusters": []}), encoding="utf-8")
+    try:
+        plrtool.load_ka_conf(str(bad))
+        raise AssertionError("expected ClusterError")
+    except plrtool.ClusterError:
+        pass
+
+
+def test_ka_conf_host_resolution(monkeypatch, tmp_path):
+    kc = tmp_path / "kubeconfig"
+    kc.write_text(
+        "current-context: my-ctx\n"
+        "contexts:\n"
+        "- name: my-ctx\n"
+        "  context:\n"
+        "    cluster: kflux-ocp-p01\n"
+        "clusters:\n"
+        "- name: kflux-ocp-p01\n"
+        "  cluster:\n"
+        "    server: https://api.example:6443\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(plrtool.cluster, "_kubeconfig_paths", lambda: [str(kc)])
+    conf = tmp_path / "ka.conf"
+    conf.write_text(yaml.safe_dump({"clusters": SAMPLE_KA_CONF}), encoding="utf-8")
+    assert _ka_conf_host(str(conf)) == SAMPLE_KA_CONF["kflux-ocp-p01"]["host"]
+    # resolution for a cluster not present in the conf -> None
+    kc2 = tmp_path / "kubeconfig2"
+    kc2.write_text(kc.read_text().replace("kflux-ocp-p01", "other-cluster"), encoding="utf-8")
+    monkeypatch.setattr(plrtool.cluster, "_kubeconfig_paths", lambda: [str(kc2)])
+    assert _ka_conf_host(str(conf)) is None
+    # missing conf file -> None
+    assert _ka_conf_host(str(tmp_path / "absent.conf")) is None
+
+
+def test_ka_client_does_not_get_host_re_stamped_by_refresh_hook(monkeypatch):
+    # Regression: load_kube_config installs refresh_api_key_hook on the main
+    # config.  A copy of that config inherits the hook, and the hook re-applies
+    # the live cluster's host on every request -> the KubeArchive "fallback"
+    # silently queried the live cluster and 404'd.  The KA client must keep
+    # the KubeArchive host even after the auth hook fires.
+    from kubernetes import client as k8s_client
+
+    ka_host = "https://kubearchive.example"
+    main_cfg = k8s_client.Configuration()
+    main_cfg.host = "https://live-cluster.example:6443"
+    main_cfg.api_key["BearerToken"] = "Bearer test-token"
+
+    def evil_refresh(conf):
+        # exactly what KubeConfigLoader._set_config does on every request
+        conf.host = "https://live-cluster.example:6443"
+        conf.api_key["BearerToken"] = "Bearer test-token"
+
+    main_cfg.refresh_api_key_hook = evil_refresh
+    # avoid eager discovery network calls in the DynamicClient constructor
+    from kubernetes import dynamic as dynamic_module
+
+    class NoDiscoverDynamicClient(dynamic_module.client.DynamicClient):
+        def __init__(self, client, cache_file=None, discoverer=None):
+            self.client = client
+            self.configuration = client.configuration
+
+    monkeypatch.setattr(dynamic_module, "DynamicClient", NoDiscoverDynamicClient)
+    client = _build_ka_client_from_host(main_cfg, ka_host)
+    cfg = client.client.configuration
+    assert cfg.host == ka_host
+    # trigger the auth path (get_api_key_with_prefix runs refresh_api_key_hook)
+    assert cfg.get_api_key_with_prefix("BearerToken") == "Bearer test-token"
+    # host must NOT have been re-stamped to the live cluster
+    assert cfg.host == ka_host
