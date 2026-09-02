@@ -17,10 +17,12 @@ Both must pass before committing. This is the preferred way to iterate during de
 Fast checks for one file (no full build):
 
 ```bash
-uv run ruff check path/to/file.py          # lint
-uv run ruff format --check path/to/file.py # formatting
-uv run mypy path/to/file.py                # type-check (kubernetes imports are ignored)
+uv run ruff check path/to/file.py
+uv run mypy path/to/file.py
 ```
+
+Formatting check for a file: `uv run ruff format --check path/to/file.py`. Full gate
+for everything: `make check-all` (ruff + mypy + bandit + gitleaks via pre-commit).
 
 ## Project structure
 
@@ -29,12 +31,12 @@ uv run mypy path/to/file.py                # type-check (kubernetes imports are 
 
 ## Pattern References
 
-Common change types and where to follow the existing pattern:
+Common change types and where to follow the pattern (pick the closest real example and mirror it):
 
-- New subcommand: add parser in `cli.py:84` (near the `download`/`timing` parsers) and a `cmd_*` entry; wire into `cli.py:main`. See `download.py`/`timing.py` for the `cmd_*` shape (`args` in, exit code out).
-- New CLI option: add field to the matching subcommand option dataclass in `options.py`, then bind it to the argparse parser in `cli.py` (e.g. `--cache`, `--csv`).
-- New cache-record field: extend the corresponding dataclass in `records.py` (e.g. `PLRRecord`) and its (de)serialization in `cache.py`; add a test in `tests/test_plrtool.py`.
-- New error class: derive from `PlrtoolError` in `exceptions.py`; raise/report it from `errors.py` classifiers (`classify_failures`) or command logic.
-- New Kubernetes/KubeArchive resource fetch: add the client call in `cluster.py` (lazy-import `kubernetes` inside the method, as done for PipelineRuns/TaskRuns/Pods) and persist results via `cache.py`.
+- New subcommand: follow the pattern in `cli.py` (`download`/`timing`/`errors` parsers + `main`) and `download.py` for the `cmd_*` shape (args in, exit code out).
+- New CLI option: follow the pattern in `options.py` and `cli.py` — use `--cache`/`--csv` as a template.
+- New cache-record field: follow the pattern in `records.py` (`PLRRecord` and friends) and its (de)serialization in `cache.py`; see `cache.py` for the JSON layout.
+- New error class: follow the pattern in `exceptions.py` (`PlrtoolError`) and `errors.py` classifiers.
+- New Kubernetes/KubeArchive resource fetch: follow the pattern in `cluster.py` (lazy-import `kubernetes`) and persist results via `cache.py`.
 
-Pick the closest existing example and mirror it; keep `utils.py` free of domain logic so it stays importable from anywhere.
+Keep `utils.py` free of domain logic so it stays importable from anywhere.
