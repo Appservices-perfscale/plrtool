@@ -1,5 +1,6 @@
 name: CI
 
+# Runs on every PR and on demand; enforced quality gates protect main.
 on:
   pull_request:
   workflow_dispatch:
@@ -8,12 +9,13 @@ permissions:
   contents: read
 
 concurrency:
+  # One run per branch/ref; a new push cancels the in-flight run for it.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   ci:
-    name: bootstrap / check-all / test
+    name: bootstrap / check-all / test / coverage
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -50,5 +52,15 @@ jobs:
       - name: Type check (mypy)
         run: make typecheck
 
-      - name: Dependency audit (uv/OSV)
+      - name: Coverage (pytest + cov, fail_under gate)
+        run: make coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+          if-no-files-found: error
+
+      - name: Dependency audit (uv/OSV + pip-audit)
         run: make audit
