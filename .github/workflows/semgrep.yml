@@ -1,0 +1,23 @@
+name: Semgrep
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: SAST (Semgrep, Python rules)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep with Python rules
+        uses: returntocorp/semgrep-action@v2
+        with:
+          config: p/python

@@ -36,3 +36,4 @@ typecheck:
 
 audit:
 	uv audit
+	uv run pip-audit
