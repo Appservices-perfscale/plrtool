@@ -13,7 +13,5 @@ Both must pass before committing. This is the preferred way to iterate during de
 
 ## Project structure
 
-- `src/prometheus_cli/` — source code (Python package)
-- `tests/unit/` — unit tests
-- `tests/integration/` — integration tests
-- `specs/` — feature specifications and design docs
+- `src/plrtool/` — source code (Python package)
+- `tests/` — tests (pytest)

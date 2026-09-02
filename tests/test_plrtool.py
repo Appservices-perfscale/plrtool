@@ -340,17 +340,17 @@ def test_ka_conf_host_resolution(monkeypatch, tmp_path):
         "    server: https://api.example:6443\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr(plrtool, "_kubeconfig_paths", lambda: [str(kc)])
+    monkeypatch.setattr(plrtool.cluster, "_kubeconfig_paths", lambda: [str(kc)])
     conf = tmp_path / "ka.conf"
     conf.write_text(yaml.safe_dump({"clusters": SAMPLE_KA_CONF}), encoding="utf-8")
-    assert plrtool._ka_conf_host(str(conf)) == SAMPLE_KA_CONF["kflux-ocp-p01"]["host"]
+    assert plrtool.cluster._ka_conf_host(str(conf)) == SAMPLE_KA_CONF["kflux-ocp-p01"]["host"]
     # resolution for a cluster not present in the conf -> None
     kc2 = tmp_path / "kubeconfig2"
     kc2.write_text(kc.read_text().replace("kflux-ocp-p01", "other-cluster"), encoding="utf-8")
-    monkeypatch.setattr(plrtool, "_kubeconfig_paths", lambda: [str(kc2)])
-    assert plrtool._ka_conf_host(str(conf)) is None
+    monkeypatch.setattr(plrtool.cluster, "_kubeconfig_paths", lambda: [str(kc2)])
+    assert plrtool.cluster._ka_conf_host(str(conf)) is None
     # missing conf file -> None
-    assert plrtool._ka_conf_host(str(tmp_path / "absent.conf")) is None
+    assert plrtool.cluster._ka_conf_host(str(tmp_path / "absent.conf")) is None
 
 
 def test_ka_client_does_not_get_host_re_stamped_by_refresh_hook(monkeypatch):
@@ -381,7 +381,7 @@ def test_ka_client_does_not_get_host_re_stamped_by_refresh_hook(monkeypatch):
             self.configuration = client.configuration
 
     monkeypatch.setattr(dynamic_module, "DynamicClient", NoDiscoverDynamicClient)
-    client = plrtool._build_ka_client_from_host(main_cfg, ka_host)
+    client = plrtool.cluster._build_ka_client_from_host(main_cfg, ka_host)
     cfg = client.client.configuration
     assert cfg.host == ka_host
     # trigger the auth path (get_api_key_with_prefix runs refresh_api_key_hook)
@@ -588,7 +588,7 @@ def test_load_doc_unwraps_items_fallback(tmp_path):
     path.write_text(
         yaml.safe_dump({"apiVersion": "v1", "items": [raw_plr("wrapped")]}), encoding="utf-8"
     )
-    doc = plrtool._load_doc(path)
+    doc = plrtool.cache._load_doc(path)
     assert doc["metadata"]["name"] == "wrapped"
 
 
@@ -596,7 +596,7 @@ def test_load_doc_warns_on_multiple_items(tmp_path, caplog):
     path = tmp_path / "collected-pipelinerun-multi.yaml"
     path.write_text(yaml.safe_dump({"items": [raw_plr("a"), raw_plr("b")]}), encoding="utf-8")
     with caplog.at_level("WARNING"):
-        doc = plrtool._load_doc(path)
+        doc = plrtool.cache._load_doc(path)
     assert doc["metadata"]["name"] == "a"  # only the first item is used
     assert any("using items[0] only" in record.message for record in caplog.records)
 
@@ -605,7 +605,7 @@ def test_load_doc_empty_items_is_missing(tmp_path, caplog):
     path = tmp_path / "collected-pipelinerun-empty.yaml"
     path.write_text(yaml.safe_dump({"items": []}), encoding="utf-8")
     with caplog.at_level("WARNING"):
-        assert plrtool._load_doc(path) is None
+        assert plrtool.cache._load_doc(path) is None
     assert any("empty 'items' list" in record.message for record in caplog.records)
 
 
@@ -721,7 +721,7 @@ def test_fetch_details_reuses_cached_artifacts(tmp_path):
     store.add_pod(raw_pod("pod-x"))
     store.add_log("pod-x", "step-a", "cached log")
     stub = StubCluster(objects={}, logs={})
-    plrtool._fetch_details(store, stub, store.plrs["p"], Target("ns-1", "p"))
+    plrtool.download._fetch_details(store, stub, store.plrs["p"], Target("ns-1", "p"))
     assert store.taskruns["p-task"].pod is store.pods["pod-x"]
     assert (tmp_path / "pod-pod-x-step-a.log").read_text() == "cached log"
 
