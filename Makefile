@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help bootstrap check check-all test
+.PHONY: help bootstrap check check-all test audit
 
 help:
 	@echo "Available targets:"
@@ -8,6 +8,7 @@ help:
 	@echo "  check       - Run checks on staged changes"
 	@echo "  check-all   - Run checks on all files"
 	@echo "  test        - Run the full pytest suite"
+	@echo "  audit       - Check dependencies for known vulnerabilities (uv audit/OSV)"
 
 bootstrap:
 	@echo "==> Installing Python 3.12 (via uv)..."
@@ -28,3 +29,6 @@ check-all:
 
 test:
 	uv run pytest -v
+
+audit:
+	uv audit

@@ -46,3 +46,6 @@ jobs:
 
       - name: Tests (pytest)
         run: make test
+
+      - name: Dependency audit (uv/OSV)
+        run: make audit
