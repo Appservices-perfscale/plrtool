@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   ci:
+    # Single job pipeline: bootstrap -> checks -> type check -> coverage -> audit.
     name: bootstrap / check-all / test / coverage
     runs-on: ubuntu-latest
     timeout-minutes: 20
