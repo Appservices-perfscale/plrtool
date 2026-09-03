@@ -74,8 +74,10 @@ def collect_plr_manifest(
     return "dumped", record
 
 
-def _fetch_details(store: CacheStore, cluster: Cluster, plr: PLRRecord, target: Target) -> int:
-    """Fetch TaskRuns, Pods and container logs for a PLR and link the records.
+def _fetch_details(
+    store: CacheStore, cluster: Cluster, plr: PLRRecord, target: Target, no_logs: bool = False
+) -> int:
+    """Fetch TaskRuns, Pods and (unless ``no_logs``) container logs for a PLR.
 
     Already-cached TaskRun/Pod/log files are reused instead of re-fetching
     (same cached-wins policy as collect_plr_manifest).  The PLR -> TaskRun ->
@@ -86,7 +88,8 @@ def _fetch_details(store: CacheStore, cluster: Cluster, plr: PLRRecord, target: 
     Returns the number of container logs that could not be retrieved (pod no
     longer on the live cluster, or no container names in the TaskRun status).
     Logs are best-effort by design, but a silent gap hides real data loss, so
-    the caller reports the count.
+    the caller reports the count.  With ``no_logs`` the log loop is skipped
+    entirely and this is always 0.
     """
     missing_logs = 0
     for tr_name in plr.tr_refs:
@@ -107,6 +110,8 @@ def _fetch_details(store: CacheStore, cluster: Cluster, plr: PLRRecord, target: 
             logger.warning("Pod %s/%s not found; skipping", target.namespace, pod_name)
         else:
             store.add_pod(raw_pod, target.namespace)
+        if no_logs:
+            continue
         containers = tr.log_containers
         if not containers:
             logger.warning(
@@ -160,7 +165,7 @@ def collect_one(
     if options.details_included or (
         options.details_if_failed and record.succeeded_status == "False"
     ):
-        missing_logs = _fetch_details(store, cluster, record, target)
+        missing_logs = _fetch_details(store, cluster, record, target, no_logs=options.no_logs)
         if missing_logs:
             logger.warning(
                 "%s/%s: %d container log(s) not downloaded (pods may no longer be on "
@@ -226,6 +231,7 @@ def cmd_download(args: argparse.Namespace) -> int:
         also_incomplete=args.also_incomplete,
         details_if_failed=args.details_if_failed,
         details_included=args.details_included,
+        no_logs=args.no_logs,
         with_timing=(
             TimingOptions(gantt_chart=args.gantt_chart, summary=args.summary, details=args.details)
             if args.with_timing

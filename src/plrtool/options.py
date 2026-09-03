@@ -22,6 +22,7 @@ class DownloadOptions:
     also_incomplete: bool = False
     details_if_failed: bool = False
     details_included: bool = False
+    no_logs: bool = False
     retries: int = RETRIES
     retry_sleep: float = RETRY_SLEEP
     with_timing: TimingOptions | None = None

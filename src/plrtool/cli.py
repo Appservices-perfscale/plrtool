@@ -102,6 +102,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--details-included", action="store_true", help="fetch TR/pod/logs for every PLR"
     )
     download.add_argument(
+        "--no-logs", action="store_true", help="fetch TR/pod manifests but skip container logs"
+    )
+    download.add_argument(
         "--with-timing",
         action="store_true",
         help="after download, run timing analysis on in-memory data",
