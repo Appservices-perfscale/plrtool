@@ -74,8 +74,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         prog="plrtool",
         description="PipelineRun toolkit for kube-shard load tests.",
     )
-    parser.add_argument("--debug", action="store_true", help="debug level to stderr is DEBUG")
-    parser.add_argument("--verbose", action="store_true", help="debug level to stderr is INFO")
+    parser.add_argument("-d", "--debug", action="store_true", help="debug level to stderr is DEBUG")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="debug level to stderr is INFO"
+    )
     parser.add_argument(
         "--log-file", default=DEFAULT_LOG_FILE, help=f"log file (default: {DEFAULT_LOG_FILE})"
     )
