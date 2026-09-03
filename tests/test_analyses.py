@@ -1,11 +1,12 @@
 """Unit tests for timing and errors analysis (cache only, no cluster needed)."""
 
 import json
+from datetime import UTC
+
+from helpers import raw_plr, raw_pod, raw_taskrun
 
 import plrtool
 from plrtool import CacheStore, TimingOptions, run_errors, run_timing
-
-from helpers import raw_pod, raw_plr, raw_taskrun
 
 
 def test_run_timing_only_succeeded_and_summary(tmp_path):
@@ -44,6 +45,66 @@ def test_run_timing_only_succeeded_and_summary(tmp_path):
 
 def test_run_timing_empty_store(tmp_path):
     assert run_timing(CacheStore(tmp_path), TimingOptions()) == 0
+
+
+def test_run_timing_gantt_pending_running_end_to_end(tmp_path, monkeypatch):
+    from plrtool import timing as timing_mod
+
+    captured = []
+    monkeypatch.setattr(
+        timing_mod,
+        "_Gantt",
+        type(
+            "FakeGantt",
+            (),
+            {
+                "__init__": lambda self: None,
+                "add": lambda self, *a: captured.append(a),
+                "render": lambda self, *a: None,
+            },
+        ),
+    )
+    store = CacheStore(tmp_path)
+    store.add_plr(
+        raw_plr(
+            "ok-1",
+            created="2026-08-13T10:00:00Z",
+            started="2026-08-13T10:00:10Z",
+            completed="2026-08-13T10:00:40Z",
+        )
+    )
+    run_timing(store, TimingOptions(gantt_chart="chart.png"))
+    pending = [c for c in captured if c[0] == "PLR ok-1" and c[3] == 0]
+    running = [c for c in captured if c[0] == "PLR ok-1" and c[3] == 1]
+    # Blue = created -> started, red = started -> completed, both on same row label.
+    assert len(pending) == 1 and len(running) == 1
+    assert pending[0][1].second == 0  # created
+    assert running[0][2].second == 40  # completed
+    assert pending[0][2] == running[0][1]  # red starts exactly where blue ends
+
+
+def test_gantt_render_valid_png(tmp_path):
+    from datetime import datetime
+
+    from plrtool.timing import _Gantt
+
+    gantt = _Gantt()
+    gantt.add(
+        "PLR ok-1",
+        datetime(2026, 8, 13, 10, 0, 0, tzinfo=UTC),
+        datetime(2026, 8, 13, 10, 0, 10, tzinfo=UTC),
+        0,
+    )
+    gantt.add(
+        "PLR ok-1",
+        datetime(2026, 8, 13, 10, 0, 10, tzinfo=UTC),
+        datetime(2026, 8, 13, 10, 0, 40, tzinfo=UTC),
+        1,
+    )
+    out = tmp_path / "gantt.png"
+    gantt.render(str(out))
+    assert out.is_file()
+    assert out.stat().st_size > 0
 
 
 def test_run_timing_per_pr_detail_gated_by_details(tmp_path, capsys):

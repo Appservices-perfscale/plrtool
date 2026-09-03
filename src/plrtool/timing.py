@@ -65,13 +65,18 @@ def _duration_stat(values: list) -> dict:
 
 
 class _Gantt:
-    """Collects (label, start, end, color) rows and renders a matplotlib chart."""
+    """Collects (label, start, end, color) segments and renders a matplotlib chart.
+
+    One horizontal row per label; repeated ``add`` calls for the same label draw
+    segments head-to-tail on that row (e.g. blue pending followed by red running
+    for one object, red starting exactly where blue ends).
+    """
 
     # 0 = pending (blue), 1 = running (red) - same colors as the gnuplot chart.
     COLORS = ("#0000FF", "#FF0000")
 
     def __init__(self) -> None:
-        self.rows: list[tuple[str, dt.datetime, dt.datetime, int]] = []
+        self.rows: dict[str, list[tuple[dt.datetime, dt.datetime, int]]] = {}
 
     def add(
         self,
@@ -80,12 +85,12 @@ class _Gantt:
         end: dt.datetime | None,
         color: int,
     ) -> None:
-        """Register one horizontal bar (skipped when either timestamp is missing)."""
+        """Register one bar segment on the ``label`` row (skipped when a timestamp is missing)."""
         if start is None or end is None:
             return
         if end < start:
             start, end = end, start
-        self.rows.append((label, start, end, color))
+        self.rows.setdefault(label, []).append((start, end, color))
 
     def render(self, output: str) -> None:
         """Render the Gantt chart to the given PNG path."""
@@ -97,22 +102,28 @@ class _Gantt:
         from matplotlib import dates as mdates
 
         matplotlib.use("Agg")
-        fig = plt.figure(figsize=(12, min(max(len(self.rows) * 0.4, 4.0), 40.0)), dpi=100)
+        labels = list(self.rows)
+        fig = plt.figure(figsize=(12, min(max(len(labels) * 0.4, 4.0), 40.0)), dpi=100)
         ax = fig.add_subplot(111)
         numbers = []
-        for label, start, end, color in self.rows:
-            x0 = mdates.date2num(start)
-            x1 = mdates.date2num(end)
-            numbers.append((label, x0, x1, color))
-        x_values = [num for _l, x0, x1, _c in numbers for num in (x0, x1)]
-        x_min, x_max = min(x_values), max(x_values)
+        all_x: list[float] = []
+        for label in labels:
+            segments = []
+            for start, end, color in self.rows[label]:
+                x0 = mdates.date2num(start)
+                x1 = mdates.date2num(end)
+                segments.append((x0, x1, color))
+                all_x.extend((x0, x1))
+            numbers.append((label, segments))
+        x_min, x_max = min(all_x), max(all_x)
         padding = max((x_max - x_min) * 0.02, 60.0 / 86400.0)
-        for y, (label, x0, x1, color) in enumerate(numbers):
-            ax.barh(y, x1 - x0, left=x0, height=0.6, color=self.COLORS[color])
+        for y, (label, segments) in enumerate(numbers):
+            for x0, x1, color in segments:
+                ax.barh(y, x1 - x0, left=x0, height=0.6, color=self.COLORS[color])
         ax.set_xlim(x_min - padding, x_max + padding)
         ax.invert_yaxis()
         ax.set_yticks(range(len(numbers)))
-        ax.set_yticklabels([label for label, _x0, _x1, _c in numbers], fontsize=8)
+        ax.set_yticklabels([label for label, _segs in numbers], fontsize=8)
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
         ax.grid(True, axis="x", alpha=0.3)
         fig.tight_layout()
@@ -165,9 +176,9 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
             if value is not None:
                 bucket.append(value)
 
-        gantt.add(f"PLR {rec.name}", rec.created, rec.completed, 0)
+        gantt.add(f"PLR {rec.name}", rec.created, rec.started, 0)
         if rec.started is not None:
-            gantt.add(f"PLR {rec.name} run", rec.started, rec.completed, 1)
+            gantt.add(f"PLR {rec.name}", rec.started, rec.completed, 1)
 
         if options.details:
             _print_plr_header(rec)
@@ -180,9 +191,9 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
                 trs_earliest = tr.created
             if options.details:
                 _print_tr(tr)
-            gantt.add(f"TR {tr.pipeline_task}", tr.created, tr.completed, 0)
+            gantt.add(f"TR {tr.pipeline_task}", tr.created, tr.started, 0)
             if tr.started is not None:
-                gantt.add(f"TR {tr.pipeline_task} run", tr.started, tr.completed, 1)
+                gantt.add(f"TR {tr.pipeline_task}", tr.started, tr.completed, 1)
             if tr.steps:
                 first_step: dt.datetime | None = None
                 for step in tr.steps:
