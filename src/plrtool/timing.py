@@ -151,7 +151,6 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
     pending_durations: list[int] = []
     running_durations: list[int] = []
     total_durations: list[int] = []
-    stat_waiting_time = 0
     gantt = _Gantt()
 
     for rec in plrs:
@@ -210,7 +209,6 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
                         first_step = step.started_at
                 if first_step is not None and tr.created is not None:
                     tr_wait = int((first_step - tr.created).total_seconds())
-                    stat_waiting_time += tr_wait
                     if options.details:
                         print(
                             f"     {YELLOW}TaskRun wait time (creation to first step): {tr_wait}s{RESET}"
@@ -221,7 +219,6 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
                 print()
         if rec.created is not None and trs_earliest is not None:
             plr_wait = int((trs_earliest - rec.created).total_seconds())
-            stat_waiting_time += plr_wait
             if options.details:
                 print(
                     f" ⤷ {YELLOW}PipelineRun wait time (creation to first TaskRun): {plr_wait}s{RESET}"
@@ -232,8 +229,6 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
     if options.gantt_chart:
         gantt.render(options.gantt_chart)
 
-    print(f"Total waiting time: {BLUE}{stat_waiting_time} seconds{RESET}")
-    print()
     print(f"{YELLOW}=== Summary ({len(plrs)} succeeded PipelineRuns) ==={RESET}")
     _print_ts_range("creationTimestamp", created_epochs)
     _print_ts_range("startTime", started_epochs)
