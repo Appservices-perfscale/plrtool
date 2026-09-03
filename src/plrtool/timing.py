@@ -33,15 +33,16 @@ def _print_duration_stats(label: str, values: list) -> None:
 
 
 def _print_ts_range(label: str, values: list) -> None:
-    """Print a min/max timestamp line (original summary format)."""
+    """Print a min/max timestamp line with the span (original summary format)."""
     if not values:
-        print(f"  {label:<20} min={'n/a':<22} max={'n/a':<22}")
+        print(f"  {label:<20} min={'n/a':<22} max={'n/a':<22} span=n/a")
         return
 
     def fmt(value: int) -> str:
         return dt.datetime.fromtimestamp(value, tz=dt.UTC).strftime(TD_FMT)
 
-    print(f"  {label:<20} min={fmt(min(values)):<22} max={fmt(max(values)):<22}")
+    span = max(values) - min(values)
+    print(f"  {label:<20} min={fmt(min(values)):<22} max={fmt(max(values)):<22} span={span}s")
 
 
 def _ts_stat(values: list) -> dict:

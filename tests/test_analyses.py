@@ -122,6 +122,8 @@ def test_run_timing_per_pr_detail_gated_by_details(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "PipelineRun 'ok-1'" not in out
     assert "=== Summary" in out
+    # Single PLR => each timestamp range spans zero seconds.
+    assert "span=0s" in out
     # --details: per-PR duration header lines are printed.
     run_timing(store, TimingOptions(details=True))
     out = capsys.readouterr().out
