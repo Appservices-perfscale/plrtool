@@ -118,3 +118,67 @@ def test_fetch_details_reuses_cached_artifacts(tmp_path):
     plrtool.download._fetch_details(store, stub, store.plrs["p"], Target("ns-1", "p"))
     assert store.taskruns["p-task"].pod is store.pods["pod-x"]
     assert (tmp_path / "pod-pod-x-step-a.log").read_text() == "cached log"
+
+
+def test_missing_logs_are_counted_and_reported(tmp_path, caplog):
+    # Pod manifest is archived but the container log is unavailable (pod gone
+    # from the live cluster) -> collect succeeds but warns about the gap.
+    store = CacheStore(tmp_path)
+    stub = StubCluster(
+        objects={
+            ("pipelinerun", "ns-1", "plr-1"): raw_plr("plr-1", refs=["plr-1-task"]),
+            ("taskrun", "ns-1", "plr-1-task"): raw_taskrun(
+                "plr-1-task",
+                pod="pod-1",
+                steps=[("a", "2026-08-13T10:00:10Z", "2026-08-13T10:00:15Z")],
+            ),
+            ("pod", "ns-1", "pod-1"): raw_pod("pod-1"),
+        },
+        logs={},
+    )
+    options = DownloadOptions(cache_dir=tmp_path, details_included=True)
+    with caplog.at_level("WARNING", logger="plrtool"):
+        assert plrtool.collect_one(store, stub, options, Target("ns-1", "plr-1")) is True
+    assert "1 container log(s) not downloaded" in caplog.text
+    assert not list(tmp_path.glob("pod-*.log"))
+
+
+def test_missing_log_count_aggregates_containers(tmp_path, caplog):
+    # Two step containers, neither retrievable -> count of 2 in the warning.
+    store = CacheStore(tmp_path)
+    stub = StubCluster(
+        objects={
+            ("pipelinerun", "ns-1", "plr-1"): raw_plr("plr-1", refs=["plr-1-task"]),
+            ("taskrun", "ns-1", "plr-1-task"): raw_taskrun(
+                "plr-1-task",
+                pod="pod-1",
+                steps=[
+                    ("a", "2026-08-13T10:00:10Z", "2026-08-13T10:00:15Z"),
+                    ("b", "2026-08-13T10:00:10Z", "2026-08-13T10:00:15Z"),
+                ],
+            ),
+            ("pod", "ns-1", "pod-1"): raw_pod("pod-1"),
+        },
+        logs={},
+    )
+    options = DownloadOptions(cache_dir=tmp_path, details_included=True)
+    with caplog.at_level("WARNING", logger="plrtool"):
+        plrtool.collect_one(store, stub, options, Target("ns-1", "plr-1"))
+    assert "2 container log(s) not downloaded" in caplog.text
+
+
+def test_taskrun_with_no_step_containers_warns(tmp_path, caplog):
+    # TaskRun status has no step container names -> logs cannot be derived.
+    store = CacheStore(tmp_path)
+    stub = StubCluster(
+        objects={
+            ("pipelinerun", "ns-1", "plr-1"): raw_plr("plr-1", refs=["plr-1-task"]),
+            ("taskrun", "ns-1", "plr-1-task"): raw_taskrun("plr-1-task", pod="pod-1"),
+            ("pod", "ns-1", "pod-1"): raw_pod("pod-1"),
+        }
+    )
+    options = DownloadOptions(cache_dir=tmp_path, details_included=True)
+    with caplog.at_level("WARNING", logger="plrtool"):
+        plrtool.collect_one(store, stub, options, Target("ns-1", "plr-1"))
+    assert "no container names in status" in caplog.text
+    assert "1 container log(s) not downloaded" in caplog.text

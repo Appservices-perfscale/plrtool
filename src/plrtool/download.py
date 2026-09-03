@@ -74,7 +74,7 @@ def collect_plr_manifest(
     return "dumped", record
 
 
-def _fetch_details(store: CacheStore, cluster: Cluster, plr: PLRRecord, target: Target) -> None:
+def _fetch_details(store: CacheStore, cluster: Cluster, plr: PLRRecord, target: Target) -> int:
     """Fetch TaskRuns, Pods and container logs for a PLR and link the records.
 
     Already-cached TaskRun/Pod/log files are reused instead of re-fetching
@@ -82,7 +82,13 @@ def _fetch_details(store: CacheStore, cluster: Cluster, plr: PLRRecord, target: 
     Pod graph is assembled through the shared ``link_plr_taskruns`` seam - the
     same one the offline ``CacheStore.load()`` uses - so the in-memory picture
     of a cache cannot drift from a later offline load of the same directory.
+
+    Returns the number of container logs that could not be retrieved (pod no
+    longer on the live cluster, or no container names in the TaskRun status).
+    Logs are best-effort by design, but a silent gap hides real data loss, so
+    the caller reports the count.
     """
+    missing_logs = 0
     for tr_name in plr.tr_refs:
         raw_tr = store.read_cached_object("taskrun", tr_name)
         if raw_tr is None:
@@ -101,13 +107,32 @@ def _fetch_details(store: CacheStore, cluster: Cluster, plr: PLRRecord, target: 
             logger.warning("Pod %s/%s not found; skipping", target.namespace, pod_name)
         else:
             store.add_pod(raw_pod, target.namespace)
-        for container in tr.log_containers:
+        containers = tr.log_containers
+        if not containers:
+            logger.warning(
+                "TaskRun %s/%s: no container names in status, cannot fetch logs for pod %s",
+                target.namespace,
+                tr_name,
+                pod_name,
+            )
+            missing_logs += 1
+            continue
+        for container in containers:
             text = store.read_cached_log(pod_name, container)
             if text is None:
                 text = cluster.get_logs(target.namespace, pod_name, container)
             if text is not None:
                 store.add_log(pod_name, container, text)
+            else:
+                logger.debug(
+                    "no logs for %s/%s %s; log will be missing",
+                    target.namespace,
+                    pod_name,
+                    container,
+                )
+                missing_logs += 1
     link_plr_taskruns(plr, store.taskruns, store.pods)
+    return missing_logs
 
 
 def collect_one(
@@ -135,7 +160,15 @@ def collect_one(
     if options.details_included or (
         options.details_if_failed and record.succeeded_status == "False"
     ):
-        _fetch_details(store, cluster, record, target)
+        missing_logs = _fetch_details(store, cluster, record, target)
+        if missing_logs:
+            logger.warning(
+                "%s/%s: %d container log(s) not downloaded (pods may no longer be on "
+                "the cluster; logs only exist on the live cluster, not in KubeArchive)",
+                target.namespace,
+                target.plr,
+                missing_logs,
+            )
     return True
 
 
