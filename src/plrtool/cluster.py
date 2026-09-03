@@ -16,6 +16,7 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 import yaml
 
@@ -293,6 +294,26 @@ class _KubeArchiveClient:
         )
         return json.loads(response.data.decode("utf-8"))
 
+    def get_logs(self, namespace: str, pod: str, container: str) -> str:
+        """Fetch one archived container's logs as plain text.
+
+        Uses the KubeArchive logs endpoint, which mirrors the Kubernetes
+        core-v1 API (``/api/v1/namespaces/{ns}/pods/{pod}/log`` with a
+        ``container`` query param) and returns text/plain.  404 raises
+        ApiException so callers can treat it as "not archived".
+        """
+        path = f"/api/v1/namespaces/{namespace}/pods/{pod}/log"
+        query = urlencode({"container": container})
+        response = self.client.call_api(
+            f"{path}?{query}",
+            "GET",
+            header_params={"Accept": "text/plain"},
+            auth_settings=["BearerToken"],
+            _preload_content=False,
+            _return_http_data_only=True,
+        )
+        return response.data.decode("utf-8")
+
 
 def _build_ka_client_from_context(context: str) -> Any:
     """Build a KubeArchive client from a kubeconfig context (no discovery).
@@ -472,16 +493,37 @@ class Cluster:
         )
 
     def get_logs(self, namespace: str, pod: str, container: str) -> str | None:
-        """Return a container's logs, or None when unavailable (best-effort)."""
+        """Return a container's logs, or None when unavailable (best-effort).
+
+        Tries the live cluster first (CoreV1Api), then falls back to the
+        KubeArchive logs endpoint so logs from pods that have already been
+        cleaned off the live cluster but are archived are still recoverable.
+        """
         from kubernetes.client.rest import ApiException
 
         try:
             return self.core.read_namespaced_pod_log(namespace, pod, container=container)
         except ApiException as exc:
-            logger.debug("no logs for %s/%s %s: HTTP %d", namespace, pod, container, exc.status)
+            logger.debug(
+                "no live logs for %s/%s %s: HTTP %d", namespace, pod, container, exc.status
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("no live logs for %s/%s %s: %s", namespace, pod, container, exc)
+        if self.ka_dyn is None:
+            return None
+        try:
+            return self.ka_dyn.get_logs(namespace, pod, container)
+        except ApiException as exc:
+            logger.debug(
+                "no KubeArchive logs for %s/%s %s: HTTP %d",
+                namespace,
+                pod,
+                container,
+                exc.status,
+            )
             return None
         except Exception as exc:  # noqa: BLE001
-            logger.debug("no logs for %s/%s %s: %s", namespace, pod, container, exc)
+            logger.debug("no KubeArchive logs for %s/%s %s: %s", namespace, pod, container, exc)
             return None
 
     def wait_completed(

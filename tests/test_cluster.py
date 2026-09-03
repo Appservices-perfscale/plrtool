@@ -185,6 +185,68 @@ def test_ka_client_builds_grouped_and_core_urls():
     assert api.calls[0][2]["auth_settings"] == ["BearerToken"]
 
 
+def test_ka_client_logs_url_and_decoding():
+    from plrtool.cluster import _KubeArchiveClient
+
+    api = FakeKaApiClient()
+    client = _KubeArchiveClient(api)
+    text = client.get_logs("ns-1", "pod-1", "step-build")
+    path, method, kwargs = api.calls[0]
+    assert path == "/api/v1/namespaces/ns-1/pods/pod-1/log?container=step-build"
+    assert method == "GET"
+    assert kwargs["header_params"] == {"Accept": "text/plain"}
+    assert kwargs["auth_settings"] == ["BearerToken"]
+    assert text == json.dumps({"metadata": {"name": "x"}, "ok": True})
+
+
+def test_get_logs_prefers_live_cluster():
+    from plrtool.cluster import _KubeArchiveClient
+
+    cluster = object.__new__(Cluster)
+    api = FakeKaApiClient()
+    cluster.ka_dyn = _KubeArchiveClient(api)
+
+    class OkCore:
+        def read_namespaced_pod_log(self, namespace, pod, container):
+            return "live-log"
+
+    cluster.core = OkCore()
+    assert cluster.get_logs("n", "p", "c") == "live-log"
+    assert api.calls == []  # live cluster served the logs; KA never consulted
+
+
+def test_get_logs_falls_back_to_kubearchive():
+    from kubernetes.client.rest import ApiException
+
+    from plrtool.cluster import _KubeArchiveClient
+
+    cluster = object.__new__(Cluster)
+    api = FakeKaApiClient()
+    cluster.ka_dyn = _KubeArchiveClient(api)
+
+    class FailCore:
+        def read_namespaced_pod_log(self, namespace, pod, container):
+            raise ApiException(status=404)
+
+    cluster.core = FailCore()
+    assert cluster.get_logs("n", "p", "c") == json.dumps({"metadata": {"name": "x"}, "ok": True})
+    assert api.calls[0][0] == "/api/v1/namespaces/n/pods/p/log?container=c"
+
+
+def test_get_logs_returns_none_without_kubearchive():
+    from kubernetes.client.rest import ApiException
+
+    cluster = object.__new__(Cluster)
+    cluster.ka_dyn = None
+
+    class FailCore:
+        def read_namespaced_pod_log(self, namespace, pod, container):
+            raise ApiException(status=404)
+
+    cluster.core = FailCore()
+    assert cluster.get_logs("n", "p", "c") is None
+
+
 def test_get_from_ka_client_falls_through_api_versions_on_404():
     from plrtool.cluster import _KubeArchiveClient
 
