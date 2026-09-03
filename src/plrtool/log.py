@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import logging.handlers
 import sys
+from pathlib import Path
 
 logger = logging.getLogger("plrtool")
 
@@ -29,8 +30,10 @@ def setup_logging(log_file: str, verbose: bool = False, debug: bool = False) -> 
     stderr.setLevel(stderr_level)
     stderr.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
     root.addHandler(stderr)
+    log_path = Path(log_file).expanduser()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     file_handler = logging.handlers.RotatingFileHandler(
-        log_file, maxBytes=5_000_000, backupCount=3, encoding="utf-8"
+        log_path, maxBytes=5_000_000, backupCount=3, encoding="utf-8"
     )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))

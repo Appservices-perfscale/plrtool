@@ -11,8 +11,8 @@ from .constants import (
     DEFAULT_CACHE,
     DEFAULT_CACHE_ENV,
     DEFAULT_CONCURRENCY,
+    DEFAULT_LOG_FILE,
     DEFAULT_TIMEOUT,
-    LOG_FILENAME,
 )
 from .download import cmd_download, cmd_wait
 from .errors import cmd_errors
@@ -77,7 +77,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--debug", action="store_true", help="debug level to stderr is DEBUG")
     parser.add_argument("--verbose", action="store_true", help="debug level to stderr is INFO")
     parser.add_argument(
-        "--log-file", default=LOG_FILENAME, help=f"log file (default: {LOG_FILENAME})"
+        "--log-file", default=DEFAULT_LOG_FILE, help=f"log file (default: {DEFAULT_LOG_FILE})"
     )
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 

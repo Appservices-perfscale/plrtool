@@ -2,10 +2,10 @@
 
 from pathlib import Path
 
+from helpers import parse_cli
+
 import plrtool
 from plrtool import DownloadOptions, TimingOptions
-
-from helpers import parse_cli
 
 
 def test_cli_subcommand_help_and_defaults():
@@ -13,6 +13,9 @@ def test_cli_subcommand_help_and_defaults():
     assert args.subcommand == "download"
     assert args.concurrency == plrtool.DEFAULT_CONCURRENCY
     assert args.cache == "collected-data"
+    # default log file lives under the XDG data dir (~/.local/share/plrtool).
+    assert args.log_file == plrtool.DEFAULT_LOG_FILE
+    assert args.log_file.endswith(".local/share/plrtool/plrtool.log")
 
     wait_args = parse_cli(["wait", "--namespace", "n", "--plr", "p"])
     assert wait_args.timeout == "100m"

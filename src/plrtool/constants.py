@@ -6,7 +6,16 @@ rest of the package can import them without pulling in logging or exceptions.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 LOG_FILENAME = "plrtool.log"
+DEFAULT_LOG_DIR_ENV = "PLR_LOG_DIR"
+# XDG data dir (~/.local/share) by default, like other user data locations.
+DEFAULT_LOG_DIR = os.environ.get(DEFAULT_LOG_DIR_ENV) or str(
+    Path.home() / ".local" / "share" / "plrtool"
+)
+DEFAULT_LOG_FILE = str(Path(DEFAULT_LOG_DIR) / LOG_FILENAME)
 DEFAULT_CACHE_ENV = "PLR_CACHE_DIR"
 DEFAULT_CACHE = "collected-data"
 DEFAULT_CONCURRENCY = 8
