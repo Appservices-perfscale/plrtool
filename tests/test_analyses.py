@@ -132,6 +132,21 @@ def test_run_timing_per_pr_detail_gated_by_details(tmp_path, capsys):
     assert "total=40" in out
 
 
+def test_run_errors_section_headers_with_counts(tmp_path, capsys):
+    store = CacheStore(tmp_path)
+    store.add_plr(raw_plr("bad-1", status="False", reason="Failed"))
+    store.add_plr(raw_plr("ok-1"))
+    store.add_pod(raw_pod("pod-1", phase="Failed"))
+    store.add_pod(raw_pod("pod-2", phase="Succeeded"))
+    run_errors(store)
+    out = capsys.readouterr().out
+    # Section titles carry per-section row counts, matching the timing summary.
+    assert "=== PipelineRun conditions (1) ===" in out
+    assert "=== TaskRun conditions (per task) (0) ===" in out
+    assert "=== Pod phases (2) ===" in out
+    assert "=== Pod condition failures (status=False) (0) ===" in out
+
+
 def test_run_errors_histograms_and_classification(tmp_path):
     store = CacheStore(tmp_path)
     store.add_plr(

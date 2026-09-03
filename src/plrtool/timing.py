@@ -12,6 +12,7 @@ from .constants import BLUE, RESET, TD_FMT, YELLOW
 from .log import logger
 from .options import TimingOptions
 from .records import PLRRecord, PodRecord, TaskRunRecord
+from .ui import section
 from .utils import duration_seconds, epoch_of, fmt_ts, percentile
 
 __all__ = ["cmd_timing", "run_timing"]
@@ -230,7 +231,7 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
     if options.gantt_chart:
         gantt.render(options.gantt_chart)
 
-    print(f"{YELLOW}=== Summary ({len(plrs)} succeeded PipelineRuns) ==={RESET}")
+    section("Summary", f"{len(plrs)} succeeded PipelineRuns")
     _print_ts_range("creationTimestamp", created_epochs)
     _print_ts_range("startTime", started_epochs)
     _print_ts_range("completionTime", completed_epochs)

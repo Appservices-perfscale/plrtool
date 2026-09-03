@@ -11,6 +11,7 @@ from pathlib import Path
 from .cache import CacheStore
 from .constants import BLUE, RED, RESET, YELLOW
 from .records import PLRRecord, PodRecord, TaskRunRecord
+from .ui import section
 from .utils import MISSING, normalize_message
 
 __all__ = [
@@ -88,7 +89,7 @@ def collect_pod_data(
 
 def _print_histogram(title: str, histogram: Counter) -> None:
     """Print a single histogram sorted by count, most frequent first."""
-    print(f"=== {title} ===")
+    section(title, len(histogram))
     if not histogram:
         print("  (no data)")
         print()
@@ -104,12 +105,12 @@ def _print_histogram(title: str, histogram: Counter) -> None:
 
 def _print_grouped_histograms(title: str, histograms_by_group: defaultdict) -> None:
     """Print histograms for all groups combined, sorted by count."""
-    print(f"=== {title} ===")
     rows = [
         (count, group, key)
         for group, histogram in histograms_by_group.items()
         for key, count in histogram.items()
     ]
+    section(title, len(rows))
     if not rows:
         print("  (no data)")
         print()
@@ -128,22 +129,22 @@ def _report_failed_taskrun(tr: TaskRunRecord) -> None:
     reason = tr.succeeded_reason
     message = tr.succeeded_message or ""
     if reason == "TaskRunImagePullFailed":
-        print(f" ⤷ {BLUE}TaskRun image pull failed: {tr.pipeline_task} ({tr.name}){RESET}")
+        print(f" ⤷ {BLUE}TaskRun image pull failed: '{tr.pipeline_task}' ({tr.name}){RESET}")
         print(f"   {message}")
         return
     if reason == "PodCreationFailed":
-        print(f" ⤷ {BLUE}TaskRun pod creation failed: {tr.pipeline_task} ({tr.name}){RESET}")
+        print(f" ⤷ {BLUE}TaskRun pod creation failed: '{tr.pipeline_task}' ({tr.name}){RESET}")
         print(f"   {message}")
         return
     if "OOMKilled" in message:
-        print(f" ⤷ {BLUE}TaskRun OOMKilled: {tr.pipeline_task} ({tr.name}){RESET}")
+        print(f" ⤷ {BLUE}TaskRun OOMKilled: '{tr.pipeline_task}' ({tr.name}){RESET}")
         print(f"   {message}")
         return
     if reason == "TaskRunCancelled":
-        print(f" ⤷ {BLUE}TaskRun cancelled: {tr.pipeline_task} ({tr.name}){RESET}")
+        print(f" ⤷ {BLUE}TaskRun cancelled: '{tr.pipeline_task}' ({tr.name}){RESET}")
         print(f"   {message}")
         return
-    print(f" ⤷ {RED}TaskRun failed: {tr.pipeline_task} ({tr.name}){RESET}")
+    print(f" ⤷ {RED}TaskRun failed: '{tr.pipeline_task}' ({tr.name}){RESET}")
     print(f"   Reason: {tr.succeeded_reason}")
     print(f"   Message: {message}")
     for step in tr.steps:
@@ -176,7 +177,7 @@ def classify_failures(records: Iterable[PLRRecord]) -> None:
     failed = [rec for rec in records if rec.succeeded_status == "False"]
     for rec in failed:
         print()
-        print(f"{YELLOW}PipelineRun: {rec.name}{RESET}")
+        print(f"{YELLOW}PipelineRun '{rec.name}'{RESET}")
         print(f"Status: False | Reason: {rec.succeeded_reason}{RESET}")
         print(f"Message: {rec.succeeded_message}{RESET}")
         reason = rec.succeeded_reason
