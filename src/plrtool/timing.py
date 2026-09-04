@@ -139,8 +139,8 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
     plrs = sorted(
         (rec for rec in store.plrs.values() if rec.succeeded_status == "True"),
         key=lambda rec: (
-            rec.created is None,
-            rec.created or dt.datetime.min.replace(tzinfo=dt.UTC),
+            rec.started is None,
+            rec.started or dt.datetime.min.replace(tzinfo=dt.UTC),
         ),
     )
     if not plrs:

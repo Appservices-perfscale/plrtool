@@ -83,6 +83,53 @@ def test_run_timing_gantt_pending_running_end_to_end(tmp_path, monkeypatch):
     assert pending[0][2] == running[0][1]  # red starts exactly where blue ends
 
 
+def test_run_timing_gantt_orders_plr_rows_by_start(tmp_path, monkeypatch):
+    """PLR rows on the Gantt Y-axis follow startTime, not creation order."""
+    from plrtool import timing as timing_mod
+
+    captured = []
+    monkeypatch.setattr(
+        timing_mod,
+        "_Gantt",
+        type(
+            "FakeGantt",
+            (),
+            {
+                "__init__": lambda self: None,
+                "add": lambda self, *a: captured.append(a),
+                "render": lambda self, *a: None,
+            },
+        ),
+    )
+    store = CacheStore(tmp_path)
+    # ok-1 is created first but starts later than ok-2.
+    store.add_plr(
+        raw_plr(
+            "ok-1",
+            created="2026-08-13T10:00:00Z",
+            started="2026-08-13T10:00:30Z",
+            completed="2026-08-13T10:01:00Z",
+        )
+    )
+    store.add_plr(
+        raw_plr(
+            "ok-2",
+            created="2026-08-13T10:00:10Z",
+            started="2026-08-13T10:00:20Z",
+            completed="2026-08-13T10:00:50Z",
+        )
+    )
+    run_timing(store, TimingOptions(gantt_chart="chart.png"))
+    # Row order = first add per label (y=0 at top after invert_yaxis).
+    seen: list = []
+    seen_set = set()
+    for label, *_rest in captured:
+        if label.startswith("PLR ") and label not in seen_set:
+            seen_set.add(label)
+            seen.append(label)
+    assert seen == ["PLR ok-2", "PLR ok-1"]
+
+
 def test_gantt_render_valid_png(tmp_path):
     from datetime import datetime
 
