@@ -138,6 +138,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     wait.add_argument(
         "--dump-completed", action="store_true", help="dump completed PLR manifests into the cache"
     )
+    wait.add_argument(
+        "--delete-on-timeout",
+        action="store_true",
+        help="delete a PLR from the live cluster when it times out",
+    )
 
     timing = subparsers.add_parser(
         "timing", help="analyze cached succeeded PLR timings (cache only)"

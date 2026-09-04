@@ -258,3 +258,44 @@ def test_get_from_ka_client_falls_through_api_versions_on_404():
         "/apis/tekton.dev/v1/namespaces/ns-1/pipelineruns/plr-1",
         "/apis/tekton.dev/v1beta1/namespaces/ns-1/pipelineruns/plr-1",
     ]
+
+
+def test_delete_pipelinerun_requests_background_propagation():
+    dyn = FakeDynClient(served_versions={"tekton.dev/v1"})
+    cluster = object.__new__(Cluster)
+    cluster.dyn = dyn
+    assert cluster.delete_pipelinerun("ns-1", "plr-1") is True
+    assert [call[0] for call in dyn.calls] == ["discover", "delete"]
+    assert dyn.calls[1][1:4] == ("tekton.dev/v1", "ns-1", "plr-1")
+    assert dyn.calls[1][4]["propagation_policy"] == "Background"
+
+
+def test_delete_pipelinerun_404_is_success():
+    # PLR already gone -> delete is a no-op success, not an error.
+    dyn = FakeDynClient(served_versions={"tekton.dev/v1"}, delete_404_for={"tekton.dev/v1"})
+    cluster = object.__new__(Cluster)
+    cluster.dyn = dyn
+    assert cluster.delete_pipelinerun("ns-1", "plr-1") is True
+
+
+def test_delete_pipelinerun_falls_through_api_versions():
+    # v1 delete fails with 500 -> v1beta1 is tried next.
+    dyn = FakeDynClient(
+        served_versions={"tekton.dev/v1", "tekton.dev/v1beta1"},
+        delete_error_for={"tekton.dev/v1"},
+    )
+    cluster = object.__new__(Cluster)
+    cluster.dyn = dyn
+    assert cluster.delete_pipelinerun("ns-1", "plr-1") is True
+    versions = [call[1] for call in dyn.calls if call[0] == "delete"]
+    assert versions == ["tekton.dev/v1", "tekton.dev/v1beta1"]
+
+
+def test_delete_pipelinerun_all_fail_returns_false():
+    dyn = FakeDynClient(
+        served_versions={"tekton.dev/v1", "tekton.dev/v1beta1"},
+        delete_error_for={"tekton.dev/v1", "tekton.dev/v1beta1"},
+    )
+    cluster = object.__new__(Cluster)
+    cluster.dyn = dyn
+    assert cluster.delete_pipelinerun("ns-1", "plr-1") is False

@@ -19,6 +19,10 @@ def test_cli_subcommand_help_and_defaults():
 
     wait_args = parse_cli(["wait", "--namespace", "n", "--plr", "p"])
     assert wait_args.timeout == "100m"
+    assert wait_args.delete_on_timeout is False
+
+    wait_args = parse_cli(["wait", "--namespace", "n", "--plr", "p", "--delete-on-timeout"])
+    assert wait_args.delete_on_timeout is True
 
     timing_args = parse_cli(["timing", "--gantt-chart", "g.png", "--summary", "s.json"])
     assert timing_args.gantt_chart == "g.png"

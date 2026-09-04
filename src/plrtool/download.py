@@ -262,36 +262,44 @@ def run_wait(cluster: Cluster, options: WaitOptions, targets: list[Target]) -> i
     logger.info(
         "waiting for canary %s/%s (timeout %.0fs)", canary.namespace, canary.plr, options.timeout
     )
-    if cluster.wait_completed(canary.namespace, canary.plr, options.timeout) is None:
-        logger.error(
-            "canary %s/%s did not complete within %.0fs",
-            canary.namespace,
-            canary.plr,
-            options.timeout,
-        )
+    if not _wait_one(cluster, canary, options):
         return 1
     logger.info("canary %s/%s completed", canary.namespace, canary.plr)
     rest = targets[:-1]
     with ThreadPoolExecutor(max_workers=options.concurrency) as pool:
-        futures = {
-            pool.submit(cluster.wait_completed, t.namespace, t.plr, options.timeout): t
-            for t in rest
-        }
+        futures = {pool.submit(_wait_one, cluster, t, options): t for t in rest}
         for future in as_completed(futures):
-            target = futures[future]
-            if future.result() is None:
-                logger.error(
-                    "%s/%s did not complete within %.0fs",
-                    target.namespace,
-                    target.plr,
-                    options.timeout,
-                )
+            if not future.result():
                 failed += 1
     print(f"wait: {len(targets)} PLRs, {len(targets) - failed} completed")
     if options.dump_completed:
         store = CacheStore(options.cache_dir)
         _dump_completed_plrs(store, cluster, targets)
     return 1 if failed else 0
+
+
+def _wait_one(cluster: Cluster, target: Target, options: WaitOptions) -> bool:
+    """Wait for one PLR to complete; on timeout optionally delete it.
+
+    Returns True when the PLR completed before the timeout.  On timeout the
+    failure is logged and, when ``delete_on_timeout`` is set, the PLR is
+    deleted from the live cluster (best-effort, deletion failures only warn).
+    """
+    if cluster.wait_completed(target.namespace, target.plr, options.timeout) is not None:
+        return True
+    logger.error(
+        "%s/%s did not complete within %.0fs",
+        target.namespace,
+        target.plr,
+        options.timeout,
+    )
+    if options.delete_on_timeout and not cluster.delete_pipelinerun(target.namespace, target.plr):
+        logger.warning(
+            "%s/%s: --delete-on-timeout set but delete failed",
+            target.namespace,
+            target.plr,
+        )
+    return False
 
 
 def _dump_completed_plrs(store: CacheStore, cluster: Cluster, targets: list[Target]) -> None:
@@ -309,6 +317,7 @@ def cmd_wait(args: argparse.Namespace) -> int:
         concurrency=args.concurrency,
         timeout=parse_duration(args.timeout),
         dump_completed=args.dump_completed,
+        delete_on_timeout=args.delete_on_timeout,
     )
     targets = resolve_targets(args)
     cluster = Cluster()

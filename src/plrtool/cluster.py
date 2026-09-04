@@ -539,3 +539,45 @@ class Cluster:
             if remaining <= 0:
                 return None
             time.sleep(min(interval, remaining))
+
+    def delete_pipelinerun(self, namespace: str, name: str) -> bool:
+        """Best-effort delete of a PipelineRun on the live cluster.
+
+        Returns True when the delete is acknowledged (or the PLR is already
+        gone); False when every api_version failed (warnings logged).  Only
+        the live cluster is used - KubeArchive is a read-only archive, and a
+        PLR we still want to delete is by definition still running there.
+        Background propagation lets the Tekton controller garbage-collect the
+        owned TaskRuns/Pods.
+        """
+        from kubernetes.client.rest import ApiException
+
+        api_versions, _ = KIND_API["pipelinerun"]
+        last_error: Exception | None = None
+        for api_version in api_versions:
+            try:
+                resource = self.dyn.resources.get(api_version=api_version, kind="PipelineRun")
+            except Exception as exc:  # noqa: BLE001 - version not in discovery
+                last_error = exc
+                continue
+            try:
+                self.dyn.delete(
+                    resource,
+                    namespace=namespace,
+                    name=name,
+                    propagation_policy="Background",
+                )
+                logger.info("%s/%s: delete requested", namespace, name)
+                return True
+            except ApiException as exc:
+                if exc.status == 404:
+                    logger.debug("%s/%s: already gone", namespace, name)
+                    return True
+                last_error = exc
+        logger.warning(
+            "%s/%s: delete failed: %s",
+            namespace,
+            name,
+            last_error or "no api_version available",
+        )
+        return False

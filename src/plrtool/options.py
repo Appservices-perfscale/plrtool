@@ -39,6 +39,7 @@ class WaitOptions:
     concurrency: int = DEFAULT_CONCURRENCY
     timeout: float = 0.0
     dump_completed: bool = False
+    delete_on_timeout: bool = False
 
 
 @dataclass(frozen=True)

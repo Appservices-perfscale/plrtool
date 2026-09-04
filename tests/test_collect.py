@@ -4,7 +4,23 @@ import yaml
 from helpers import StubCluster, raw_plr, raw_pod, raw_taskrun
 
 import plrtool
-from plrtool import CacheStore, DownloadOptions, Target
+from plrtool import CacheStore, DownloadOptions, Target, WaitOptions
+
+
+class FakeWaitCluster:
+    """Minimal Cluster stand-in for run_wait tests."""
+
+    def __init__(self, completed=(), delete_ok=True):
+        self.completed = set(completed)
+        self.delete_ok = delete_ok
+        self.deleted = []
+
+    def wait_completed(self, namespace, name, timeout):
+        return {} if name in self.completed else None
+
+    def delete_pipelinerun(self, namespace, name):
+        self.deleted.append((namespace, name))
+        return self.delete_ok
 
 
 def test_collect_plr_manifest_states(tmp_path):
@@ -206,3 +222,40 @@ def test_taskrun_with_no_step_containers_warns(tmp_path, caplog):
         plrtool.collect_one(store, stub, options, Target("ns-1", "plr-1"))
     assert "no container names in status" in caplog.text
     assert "1 container log(s) not downloaded" in caplog.text
+
+
+def test_run_wait_deletes_timed_out_non_canary(tmp_path):
+    # Canary (last target) completes; the other PLR times out -> deleted.
+    cluster = FakeWaitCluster(completed={"plr-b"})
+    options = WaitOptions(cache_dir=tmp_path, timeout=60, delete_on_timeout=True)
+    targets = [Target("ns-1", "plr-a"), Target("ns-1", "plr-b")]
+    assert plrtool.run_wait(cluster, options, targets) == 1
+    assert cluster.deleted == [("ns-1", "plr-a")]
+
+
+def test_run_wait_no_delete_without_flag(tmp_path):
+    # --delete-on-timeout unset -> timed-out PLR is only reported, not deleted.
+    cluster = FakeWaitCluster(completed={"plr-b"})
+    options = WaitOptions(cache_dir=tmp_path, timeout=60)
+    targets = [Target("ns-1", "plr-a"), Target("ns-1", "plr-b")]
+    assert plrtool.run_wait(cluster, options, targets) == 1
+    assert cluster.deleted == []
+
+
+def test_run_wait_deletes_canary_on_timeout(tmp_path):
+    # Single-target run: the canary itself times out and gets deleted.
+    cluster = FakeWaitCluster(completed=set(), delete_ok=True)
+    options = WaitOptions(cache_dir=tmp_path, timeout=60, delete_on_timeout=True)
+    assert plrtool.run_wait(cluster, options, [Target("ns-1", "plr-a")]) == 1
+    assert cluster.deleted == [("ns-1", "plr-a")]
+
+
+def test_run_wait_delete_failure_warns(tmp_path, caplog):
+    # Delete fails -> exit code still 1 and a warning is logged.
+    cluster = FakeWaitCluster(completed={"plr-b"}, delete_ok=False)
+    options = WaitOptions(cache_dir=tmp_path, timeout=60, delete_on_timeout=True)
+    targets = [Target("ns-1", "plr-a"), Target("ns-1", "plr-b")]
+    with caplog.at_level("WARNING", logger="plrtool"):
+        assert plrtool.run_wait(cluster, options, targets) == 1
+    assert cluster.deleted == [("ns-1", "plr-a")]
+    assert "delete failed" in caplog.text

@@ -144,10 +144,19 @@ class StubCluster:
 class FakeDynClient:
     """Stand-in for a kubernetes DynamicClient recording api_version attempts."""
 
-    def __init__(self, served_versions, get_404_for=(), fail_discovery_for=()):
+    def __init__(
+        self,
+        served_versions,
+        get_404_for=(),
+        fail_discovery_for=(),
+        delete_404_for=(),
+        delete_error_for=(),
+    ):
         self.served_versions = set(served_versions)
         self.get_404_for = set(get_404_for)
         self.fail_discovery_for = set(fail_discovery_for)
+        self.delete_404_for = set(delete_404_for)
+        self.delete_error_for = set(delete_error_for)
         self.calls = []
 
     class _Resources:
@@ -174,6 +183,17 @@ class FakeDynClient:
         if api_version in self.get_404_for:
             raise ApiException(status=404)
         return {"metadata": {"name": name}, "ok": True}
+
+    def delete(self, resource, namespace="", name="", **kwargs):
+        from kubernetes.client.rest import ApiException
+
+        api_version = resource["api_version"]
+        self.calls.append(("delete", api_version, namespace, name, kwargs))
+        if api_version in self.delete_404_for:
+            raise ApiException(status=404)
+        if api_version in self.delete_error_for:
+            raise ApiException(status=500)
+        return {"metadata": {"name": name}}
 
 
 def parse_cli(argv):
