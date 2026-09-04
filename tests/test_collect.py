@@ -4,7 +4,7 @@ import yaml
 from helpers import StubCluster, raw_plr, raw_pod, raw_taskrun
 
 import plrtool
-from plrtool import CacheStore, DownloadOptions, Target, WaitOptions
+from plrtool import CacheStore, DeleteOptions, DownloadOptions, Target, WaitOptions
 
 
 class FakeWaitCluster:
@@ -21,6 +21,22 @@ class FakeWaitCluster:
     def delete_pipelinerun(self, namespace, name):
         self.deleted.append((namespace, name))
         return self.delete_ok
+
+
+class FakeDeleteCluster:
+    """Minimal Cluster stand-in for run_delete tests."""
+
+    def __init__(self, request_ok=True, timed_out=()):
+        self.request_ok = request_ok
+        self.timed_out = set(timed_out)
+        self.requested = []
+
+    def delete_pipelinerun(self, namespace, name):
+        self.requested.append((namespace, name))
+        return self.request_ok
+
+    def wait_deleted(self, namespace, name, timeout):
+        return name not in self.timed_out
 
 
 def test_collect_plr_manifest_states(tmp_path):
@@ -259,3 +275,36 @@ def test_run_wait_delete_failure_warns(tmp_path, caplog):
         assert plrtool.run_wait(cluster, options, targets) == 1
     assert cluster.deleted == [("ns-1", "plr-a")]
     assert "delete failed" in caplog.text
+
+
+def test_run_delete_deletes_all(tmp_path, capsys):
+    cluster = FakeDeleteCluster()
+    options = DeleteOptions(concurrency=2, timeout=60)
+    targets = [Target("ns-1", "plr-a"), Target("ns-1", "plr-b")]
+    assert plrtool.run_delete(cluster, options, targets) == 0
+    assert set(cluster.requested) == {("ns-1", "plr-a"), ("ns-1", "plr-b")}
+    assert "2 PLRs, 2 deleted" in capsys.readouterr().out
+
+
+def test_run_delete_reports_timeout_per_plr(caplog):
+    # One PLR lingers (stuck finalizers) past the timeout -> per-PLR error.
+    cluster = FakeDeleteCluster(timed_out={"plr-a"})
+    options = DeleteOptions(concurrency=2, timeout=60)
+    targets = [Target("ns-1", "plr-a"), Target("ns-1", "plr-b")]
+    with caplog.at_level("ERROR", logger="plrtool"):
+        assert plrtool.run_delete(cluster, options, targets) == 1
+    assert "plr-a: did not finish deleting within 60s" in caplog.text
+    # only the timed-out PLR is reported as failed
+    assert "plr-b" not in caplog.text
+
+
+def test_run_delete_reports_failed_request(caplog):
+    # DELETE request itself fails -> reported as error for that PLR only.
+    cluster = FakeDeleteCluster(request_ok=False)
+    options = DeleteOptions(concurrency=2, timeout=60)
+    targets = [Target("ns-1", "plr-a"), Target("ns-1", "plr-b")]
+    with caplog.at_level("ERROR", logger="plrtool"):
+        assert plrtool.run_delete(cluster, options, targets) == 1
+    assert "plr-a: delete request failed" in caplog.text
+    assert "plr-b: delete request failed" in caplog.text
+    assert set(cluster.requested) == {("ns-1", "plr-a"), ("ns-1", "plr-b")}

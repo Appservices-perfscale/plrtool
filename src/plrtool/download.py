@@ -17,17 +17,19 @@ from .errors import run_errors
 from .exceptions import ClusterError
 from .graph import link_plr_taskruns
 from .log import logger
-from .options import DownloadOptions, TimingOptions, WaitOptions
+from .options import DeleteOptions, DownloadOptions, TimingOptions, WaitOptions
 from .records import PLRRecord, parse_plr
 from .targets import Target, resolve_targets
 from .timing import run_timing
 from .utils import parse_duration
 
 __all__ = [
+    "cmd_delete",
     "cmd_download",
     "cmd_wait",
     "collect_one",
     "collect_plr_manifest",
+    "run_delete",
     "run_download",
     "run_wait",
 ]
@@ -322,3 +324,54 @@ def cmd_wait(args: argparse.Namespace) -> int:
     targets = resolve_targets(args)
     cluster = Cluster()
     return run_wait(cluster, options, targets)
+
+
+def _delete_one(cluster: Cluster, target: Target, timeout: float) -> bool:
+    """Delete one PLR and wait for it to actually disappear. True on success.
+
+    A DELETE request alone is not enough: with stuck finalizers the object
+    lingers forever, so this waits up to ``timeout`` seconds for the live
+    cluster to report it gone.  Errors are logged by the caller.
+    """
+    if not cluster.delete_pipelinerun(target.namespace, target.plr):
+        logger.error("%s/%s: delete request failed", target.namespace, target.plr)
+        return False
+    if cluster.wait_deleted(target.namespace, target.plr, timeout):
+        return True
+    logger.error(
+        "%s/%s: did not finish deleting within %.0fs",
+        target.namespace,
+        target.plr,
+        timeout,
+    )
+    return False
+
+
+def run_delete(cluster: Cluster, options: DeleteOptions, targets: list[Target]) -> int:
+    """Run the whole delete subcommand. Returns process exit code."""
+    if not targets:
+        return 0
+    failed = 0
+    with ThreadPoolExecutor(max_workers=options.concurrency) as pool:
+        futures = {pool.submit(_delete_one, cluster, t, options.timeout): t for t in targets}
+        for future in as_completed(futures):
+            target = futures[future]
+            try:
+                if not future.result():
+                    failed += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.error("%s/%s: delete failed: %s", target.namespace, target.plr, exc)
+                failed += 1
+    print(f"delete: {len(targets)} PLRs, {len(targets) - failed} deleted")
+    return 1 if failed else 0
+
+
+def cmd_delete(args: argparse.Namespace) -> int:
+    """CLI entry for 'delete'."""
+    options = DeleteOptions(
+        concurrency=args.concurrency,
+        timeout=parse_duration(args.timeout),
+    )
+    targets = resolve_targets(args)
+    cluster = Cluster()
+    return run_delete(cluster, options, targets)

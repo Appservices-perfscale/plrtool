@@ -36,6 +36,7 @@ from .constants import (
     DEFAULT_CACHE,
     DEFAULT_CACHE_ENV,
     DEFAULT_CONCURRENCY,
+    DEFAULT_DELETE_TIMEOUT,
     DEFAULT_LOG_DIR,
     DEFAULT_LOG_DIR_ENV,
     DEFAULT_LOG_FILE,
@@ -51,10 +52,12 @@ from .constants import (
     YELLOW,
 )
 from .download import (
+    cmd_delete,
     cmd_download,
     cmd_wait,
     collect_one,
     collect_plr_manifest,
+    run_delete,
     run_download,
     run_wait,
 )
@@ -68,7 +71,7 @@ from .errors import (
 )
 from .exceptions import ClusterError, PlrtoolError
 from .graph import link_plr_taskruns, link_run_graph
-from .options import DownloadOptions, TimingOptions, WaitOptions
+from .options import DeleteOptions, DownloadOptions, TimingOptions, WaitOptions
 from .records import (
     ContainerStatusRecord,
     PLRRecord,
@@ -105,6 +108,7 @@ __all__ = [
     "DEFAULT_CACHE",
     "DEFAULT_CACHE_ENV",
     "DEFAULT_CONCURRENCY",
+    "DEFAULT_DELETE_TIMEOUT",
     "DEFAULT_KA_CONF",
     "DEFAULT_KA_CONF_ENV",
     "DEFAULT_LOG_DIR",
@@ -130,6 +134,7 @@ __all__ = [
     "ContainerStatusRecord",
     "CsvSelector",
     # options
+    "DeleteOptions",
     "DownloadOptions",
     "NamespacePlrSelector",
     "PLRRecord",
@@ -149,6 +154,7 @@ __all__ = [
     # cli
     "build_arg_parser",
     "classify_failures",
+    "cmd_delete",
     "cmd_download",
     "cmd_errors",
     "cmd_timing",
@@ -178,6 +184,7 @@ __all__ = [
     "parse_ts_dt",
     "percentile",
     "resolve_targets",
+    "run_delete",
     "run_download",
     "run_errors",
     # timing

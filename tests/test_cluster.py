@@ -299,3 +299,39 @@ def test_delete_pipelinerun_all_fail_returns_false():
     cluster = object.__new__(Cluster)
     cluster.dyn = dyn
     assert cluster.delete_pipelinerun("ns-1", "plr-1") is False
+
+
+def test_live_get_returns_none_on_404():
+    dyn = FakeDynClient(
+        served_versions={"tekton.dev/v1", "tekton.dev/v1beta1"},
+        get_404_for={"tekton.dev/v1", "tekton.dev/v1beta1"},
+    )
+    cluster = object.__new__(Cluster)
+    cluster.dyn = dyn
+    assert cluster._live_get("pipelinerun", "ns-1", "plr-1") is None
+
+
+def test_live_get_returns_object_when_present():
+    dyn = FakeDynClient(served_versions={"tekton.dev/v1"})
+    cluster = object.__new__(Cluster)
+    cluster.dyn = dyn
+    obj = cluster._live_get("pipelinerun", "ns-1", "plr-1")
+    assert obj is not None
+    assert obj["metadata"]["name"] == "plr-1"
+
+
+def test_wait_deleted_true_when_already_gone():
+    dyn = FakeDynClient(
+        served_versions={"tekton.dev/v1", "tekton.dev/v1beta1"},
+        get_404_for={"tekton.dev/v1", "tekton.dev/v1beta1"},
+    )
+    cluster = object.__new__(Cluster)
+    cluster.dyn = dyn
+    assert cluster.wait_deleted("ns-1", "plr-1", timeout=60) is True
+
+
+def test_wait_deleted_times_out_when_still_present():
+    dyn = FakeDynClient(served_versions={"tekton.dev/v1", "tekton.dev/v1beta1"})
+    cluster = object.__new__(Cluster)
+    cluster.dyn = dyn
+    assert cluster.wait_deleted("ns-1", "plr-1", timeout=0.01) is False

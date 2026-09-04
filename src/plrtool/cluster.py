@@ -581,3 +581,38 @@ class Cluster:
             last_error or "no api_version available",
         )
         return False
+
+    def _live_get(self, kind: str, namespace: str, name: str) -> dict | None:
+        """Fetch one object from the live cluster only; None when absent.
+
+        Unlike ``get_object`` this does NOT fall back to KubeArchive, so it
+        can tell whether an object actually exists on the live cluster (used
+        to verify a delete completed).
+        """
+        from kubernetes.client.rest import ApiException
+
+        try:
+            return self._get_from(self.dyn, kind, namespace, name)
+        except ApiException as exc:
+            if exc.status == 404:
+                return None
+            raise
+
+    def wait_deleted(
+        self, namespace: str, name: str, timeout: float, interval: float = POLL_INTERVAL
+    ) -> bool:
+        """Poll the live cluster until the PipelineRun is gone; False on timeout.
+
+        The live cluster is the only source of truth here: a delete can hang
+        indefinitely when finalizers are stuck, and KubeArchive may keep an
+        archived copy long after the live object is gone (which must not
+        count as "still present").
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            if self._live_get("pipelinerun", namespace, name) is None:
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(min(interval, remaining))

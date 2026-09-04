@@ -11,10 +11,11 @@ from .constants import (
     DEFAULT_CACHE,
     DEFAULT_CACHE_ENV,
     DEFAULT_CONCURRENCY,
+    DEFAULT_DELETE_TIMEOUT,
     DEFAULT_LOG_FILE,
     DEFAULT_TIMEOUT,
 )
-from .download import cmd_download, cmd_wait
+from .download import cmd_delete, cmd_download, cmd_wait
 from .errors import cmd_errors
 from .log import setup_logging
 from .targets import add_selector_args
@@ -155,6 +156,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     add_cache_arg(errors)
 
+    delete = subparsers.add_parser("delete", help="delete PLR(s) and wait for them to be gone")
+    add_selector_args(delete)
+    add_concurrency_arg(delete)
+    delete.add_argument(
+        "--timeout",
+        default=DEFAULT_DELETE_TIMEOUT,
+        help=f"per-PLR timeout waiting for deletion (default: {DEFAULT_DELETE_TIMEOUT})",
+    )
+
     return parser
 
 
@@ -163,6 +173,7 @@ COMMANDS = {
     "wait": cmd_wait,
     "timing": cmd_timing,
     "errors": cmd_errors,
+    "delete": cmd_delete,
 }
 
 

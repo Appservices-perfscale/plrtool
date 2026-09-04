@@ -29,6 +29,18 @@ def test_cli_subcommand_help_and_defaults():
     assert timing_args.summary == "s.json"
 
 
+def test_cli_delete_defaults_and_override():
+    args = parse_cli(["delete", "--namespace", "n", "--plr", "p"])
+    assert args.timeout == "1m"
+    assert args.concurrency == plrtool.DEFAULT_CONCURRENCY
+
+    args = parse_cli(
+        ["delete", "--namespace", "n", "--plr", "p", "--timeout", "5s", "--concurrency", "3"]
+    )
+    assert args.timeout == "5s"
+    assert args.concurrency == 3
+
+
 def test_cli_download_with_timing_builds_options():
     args = parse_cli(
         [

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .constants import DEFAULT_CACHE, DEFAULT_CONCURRENCY, RETRIES, RETRY_SLEEP
 
-__all__ = ["DownloadOptions", "TimingOptions", "WaitOptions"]
+__all__ = ["DeleteOptions", "DownloadOptions", "TimingOptions", "WaitOptions"]
 # ---------------------------------------------------------------------------
 # 2. Options dataclasses (thinnest possible arg plumbing: CLI -> logic)
 # ---------------------------------------------------------------------------
@@ -29,6 +29,14 @@ class DownloadOptions:
     with_errors: bool = False
     ka_context: str | None = None
     ka_conf: str | None = None
+
+
+@dataclass(frozen=True)
+class DeleteOptions:
+    """Options for the delete subcommand."""
+
+    concurrency: int = DEFAULT_CONCURRENCY
+    timeout: float = 0.0
 
 
 @dataclass(frozen=True)

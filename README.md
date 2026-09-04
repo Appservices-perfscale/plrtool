@@ -19,6 +19,7 @@ make bootstrap          # dev tools + pre-commit hooks (first time)
 uv run plrtool download --namespace NS --plr NAME --cache DIR
 uv run plrtool download --csv targets.csv --cache DIR --details-if-failed
 uv run plrtool wait     --csv targets.csv --timeout 100m --dump-completed
+uv run plrtool delete   --csv targets.csv --timeout 1m
 uv run plrtool timing   --cache DIR --gantt-chart chart.png --summary stats.json
 uv run plrtool errors   --cache DIR
 ```
@@ -29,6 +30,7 @@ uv run plrtool errors   --cache DIR
 |------------|-------------------------------------------------------------------|
 | `download` | fetch PLR manifests (+ TaskRun/Pod/container logs) into a cache   |
 | `wait`     | poll PLRs until `status.completionTime` is set (canary first)     |
+| `delete`   | delete PLRs and wait for them to be gone (timeout per PLR)       |
 | `timing`   | aggregate timing stats of cached *succeeded* PLRs (cache only)    |
 | `errors`   | histogram conditions/reasons + classify failures (cache only)     |
 
