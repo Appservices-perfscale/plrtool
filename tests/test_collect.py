@@ -16,7 +16,9 @@ class FakeWaitCluster:
         self.deleted = []
 
     def wait_completed(self, namespace, name, timeout):
-        return {} if name in self.completed else None
+        if name in self.completed:
+            return raw_plr(name, ns=namespace)
+        return None
 
     def delete_pipelinerun(self, namespace, name):
         self.deleted.append((namespace, name))
@@ -275,6 +277,29 @@ def test_run_wait_delete_failure_warns(tmp_path, caplog):
         assert plrtool.run_wait(cluster, options, targets) == 1
     assert cluster.deleted == [("ns-1", "plr-a")]
     assert "delete failed" in caplog.text
+
+
+def test_run_wait_dumps_completed_to_cache(tmp_path):
+    # --dump-completed caches each PLR the moment wait sees it finish.
+    cluster = FakeWaitCluster(completed={"plr-a", "plr-b"})
+    options = WaitOptions(cache_dir=tmp_path, timeout=60, dump_completed=True)
+    targets = [Target("ns-1", "plr-a"), Target("ns-1", "plr-b")]
+    assert plrtool.run_wait(cluster, options, targets) == 0
+    assert (tmp_path / "collected-pipelinerun-plr-a.json").is_file()
+    assert (tmp_path / "collected-pipelinerun-plr-b.json").is_file()
+
+
+def test_run_wait_dump_failure_warns(tmp_path, caplog):
+    # A malformed completed manifest warns but does not fail the wait.
+    class BadCluster(FakeWaitCluster):
+        def wait_completed(self, namespace, name, timeout):
+            return ["not", "a", "dict"] if name in self.completed else None
+
+    cluster = BadCluster(completed={"plr-a"})
+    options = WaitOptions(cache_dir=tmp_path, timeout=60, dump_completed=True)
+    with caplog.at_level("WARNING", logger="plrtool"):
+        assert plrtool.run_wait(cluster, options, [Target("ns-1", "plr-a")]) == 0
+    assert "could not dump completed PLR" in caplog.text
 
 
 def test_run_delete_deletes_all(tmp_path, capsys):

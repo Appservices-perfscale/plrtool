@@ -1,7 +1,7 @@
 """download + wait subcommands: collection, retry, and the shared cache path.
 
-``wait --dump-completed`` reuses the download pipeline via
-``collect_plr_manifest``/``_dump_completed_plrs``.
+``wait --dump-completed`` dumps each manifest the moment wait sees it
+complete, so no second pass over the targets is needed.
 """
 
 from __future__ import annotations
@@ -259,35 +259,49 @@ def run_wait(cluster: Cluster, options: WaitOptions, targets: list[Target]) -> i
     if not targets:
         return 0
     failed = 0
+    store = CacheStore(options.cache_dir) if options.dump_completed else None
     # Canary first (original behavior): a broken cluster fails fast on one PLR.
     canary = targets[-1]
     logger.info(
         "waiting for canary %s/%s (timeout %.0fs)", canary.namespace, canary.plr, options.timeout
     )
-    if not _wait_one(cluster, canary, options):
+    if not _wait_one(cluster, canary, options, store):
         return 1
     logger.info("canary %s/%s completed", canary.namespace, canary.plr)
     rest = targets[:-1]
     with ThreadPoolExecutor(max_workers=options.concurrency) as pool:
-        futures = {pool.submit(_wait_one, cluster, t, options): t for t in rest}
+        futures = {pool.submit(_wait_one, cluster, t, options, store): t for t in rest}
         for future in as_completed(futures):
             if not future.result():
                 failed += 1
     print(f"wait: {len(targets)} PLRs, {len(targets) - failed} completed")
-    if options.dump_completed:
-        store = CacheStore(options.cache_dir)
-        _dump_completed_plrs(store, cluster, targets)
     return 1 if failed else 0
 
 
-def _wait_one(cluster: Cluster, target: Target, options: WaitOptions) -> bool:
+def _wait_one(
+    cluster: Cluster, target: Target, options: WaitOptions, store: CacheStore | None = None
+) -> bool:
     """Wait for one PLR to complete; on timeout optionally delete it.
 
-    Returns True when the PLR completed before the timeout.  On timeout the
+    Returns True when the PLR completed before the timeout.  When ``store`` is
+    given the completed manifest is dumped to the cache right away, so
+    ``--dump-completed`` needs no second pass over the targets.  On timeout the
     failure is logged and, when ``delete_on_timeout`` is set, the PLR is
     deleted from the live cluster (best-effort, deletion failures only warn).
+    A dump failure only warns and does not fail the wait.
     """
-    if cluster.wait_completed(target.namespace, target.plr, options.timeout) is not None:
+    obj = cluster.wait_completed(target.namespace, target.plr, options.timeout)
+    if obj is not None:
+        if store is not None:
+            try:
+                store.add_plr(obj, target.namespace)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "%s/%s: could not dump completed PLR: %s",
+                    target.namespace,
+                    target.plr,
+                    exc,
+                )
         return True
     logger.error(
         "%s/%s did not complete within %.0fs",
@@ -302,14 +316,6 @@ def _wait_one(cluster: Cluster, target: Target, options: WaitOptions) -> bool:
             target.plr,
         )
     return False
-
-
-def _dump_completed_plrs(store: CacheStore, cluster: Cluster, targets: list[Target]) -> None:
-    """Shared download path reused by 'wait --dump-completed'."""
-    for target in targets:
-        result, _record = collect_plr_manifest(store, cluster, target)
-        if result == "missing":
-            logger.warning("%s/%s: not found while dumping", target.namespace, target.plr)
 
 
 def cmd_wait(args: argparse.Namespace) -> int:
