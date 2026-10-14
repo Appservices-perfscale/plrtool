@@ -132,6 +132,21 @@ def test_ka_conf_host_resolution(monkeypatch, tmp_path):
     assert _ka_conf_host(str(tmp_path / "absent.conf")) is None
 
 
+def test_resolve_ka_client_warns_when_unconfigured(monkeypatch, caplog):
+    # No KA context, no ka.conf entry, no auto-detected context -> None,
+    # but a warning with the 'oc ka' fix hint must reach the user.
+    import logging
+
+    cluster = object.__new__(Cluster)
+    cluster.ka_context = None
+    cluster.ka_conf = None
+    monkeypatch.setattr(plrtool.cluster, "_ka_conf_host", lambda ka_conf=None: None)
+    monkeypatch.setattr(plrtool.cluster, "_find_ka_context", lambda: None)
+    with caplog.at_level(logging.WARNING, logger="plrtool"):
+        assert cluster._resolve_ka_client() is None
+    assert "oc ka" in caplog.text
+
+
 def test_ka_client_does_not_get_host_re_stamped_by_refresh_hook(monkeypatch):
     # Regression: load_kube_config installs refresh_api_key_hook on the main
     # config.  A copy of that config inherits the hook, and the hook re-applies

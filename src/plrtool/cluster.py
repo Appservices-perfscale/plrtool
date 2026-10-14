@@ -422,6 +422,12 @@ class Cluster:
         if context:
             logger.info("using KubeArchive context (auto): %s", context)
             return _build_ka_client_from_context(context)
+        logger.warning(
+            "KubeArchive fallback not configured: deleted/archived PLRs and their "
+            "logs will NOT be found (waiting on a deleted PLR then blocks until "
+            "timeout). Configure it by running 'oc ka' against the current "
+            "cluster, or point --ka-context at a KubeArchive kubeconfig context."
+        )
         return None
 
     @property
