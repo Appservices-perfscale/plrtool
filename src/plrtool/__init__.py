@@ -15,6 +15,7 @@ Subcommands (see ``plrtool.cli`` / ``plrtool download --help``):
            [--concurrency N] [--timeout 100m] [--dump-completed]
   timing   --cache DIR [--gantt-chart PATH] [--summary FILE]
   errors   --cache DIR
+  normalize FILE [--params-only]
 
 Concurrency, cache path and log verbosity all have sensible defaults.
 """
@@ -71,6 +72,7 @@ from .errors import (
 )
 from .exceptions import ClusterError, PlrtoolError
 from .graph import link_plr_taskruns, link_run_graph
+from .normalize import cmd_normalize, load_manifest, normalize_plr
 from .options import DeleteOptions, DownloadOptions, TimingOptions, WaitOptions
 from .records import (
     ContainerStatusRecord,
@@ -157,6 +159,7 @@ __all__ = [
     "cmd_delete",
     "cmd_download",
     "cmd_errors",
+    "cmd_normalize",
     "cmd_timing",
     "cmd_wait",
     "collect_one",
@@ -174,8 +177,10 @@ __all__ = [
     "link_plr_taskruns",
     "link_run_graph",
     "load_ka_conf",
+    "load_manifest",
     "main",
     "normalize_message",
+    "normalize_plr",
     "parse_duration",
     "parse_plr",
     "parse_pod",

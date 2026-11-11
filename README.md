@@ -22,7 +22,19 @@ uv run plrtool wait     --csv targets.csv --timeout 100m --dump-completed
 uv run plrtool delete   --csv targets.csv --timeout 1m
 uv run plrtool timing   --cache DIR --gantt-chart chart.png --summary stats.json
 uv run plrtool errors   --cache DIR
+uv run plrtool normalize plr.yaml [--params-only]
 ```
+
+Diff two PLRs after stripping run-specific noise:
+
+```bash
+diff -u <(plrtool normalize aaa.yaml) <(plrtool normalize bbb.yaml)
+```
+
+`normalize` drops `status` and volatile metadata (UID, resource version,
+creation timestamp, managed fields, owner references, kubectl last-applied
+annotation), sorts map keys and lists of named objects. `--params-only` prints
+just `spec.params`. Input can be YAML or JSON.
 
 ### Subcommands
 
@@ -33,6 +45,7 @@ uv run plrtool errors   --cache DIR
 | `delete`   | delete PLRs and wait for them to be gone (timeout per PLR)       |
 | `timing`   | aggregate timing stats of cached *succeeded* PLRs (cache only)    |
 | `errors`   | histogram conditions/reasons + classify failures (cache only)     |
+| `normalize`| print PLR manifest with run-specific noise removed (for diffing)  |
 
 ## Cache layout
 
@@ -67,6 +80,7 @@ src/plrtool/          Python package (src layout)
   download.py         download + wait subcommands
   timing.py           timing analysis
   errors.py           failure analysis
+  normalize.py        manifest normalization for diffing
   cluster.py          Kubernetes / KubeArchive access
   cache.py            on-disk JSON cache + in-memory records
   records.py          manifest -> record dataclasses

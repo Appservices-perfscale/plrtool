@@ -18,6 +18,7 @@ from .constants import (
 from .download import cmd_delete, cmd_download, cmd_wait
 from .errors import cmd_errors
 from .log import setup_logging
+from .normalize import cmd_normalize
 from .targets import add_selector_args
 from .timing import cmd_timing
 
@@ -29,7 +30,7 @@ __all__ = [
     "main",
 ]
 # ---------------------------------------------------------------------------
-# 10. CLI
+# 11. CLI
 # ---------------------------------------------------------------------------
 
 
@@ -156,6 +157,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     add_cache_arg(errors)
 
+    normalize = subparsers.add_parser(
+        "normalize", help="normalize a PLR manifest for diffing (reads YAML or JSON)"
+    )
+    normalize.add_argument("file", metavar="FILE", help="PipelineRun manifest to normalize")
+    normalize.add_argument("--params-only", action="store_true", help="print only spec.params")
+
     delete = subparsers.add_parser("delete", help="delete PLR(s) and wait for them to be gone")
     add_selector_args(delete)
     add_concurrency_arg(delete)
@@ -173,6 +180,7 @@ COMMANDS = {
     "wait": cmd_wait,
     "timing": cmd_timing,
     "errors": cmd_errors,
+    "normalize": cmd_normalize,
     "delete": cmd_delete,
 }
 
