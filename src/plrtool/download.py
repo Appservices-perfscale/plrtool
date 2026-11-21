@@ -256,7 +256,14 @@ def cmd_download(args: argparse.Namespace) -> int:
         details_included=args.details_included,
         no_logs=args.no_logs,
         with_timing=(
-            TimingOptions(gantt_chart=args.gantt_chart, summary=args.summary, details=args.details)
+            TimingOptions(
+                gantt_chart=args.gantt_chart,
+                summary=args.summary,
+                details=args.details,
+                start_histogram=args.start_histogram,
+                duration_histogram=args.duration_histogram,
+                histogram_buckets=args.histogram_buckets,
+            )
             if args.with_timing
             else None
         ),

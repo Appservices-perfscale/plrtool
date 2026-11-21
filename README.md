@@ -22,6 +22,7 @@ uv run plrtool download --namespace NS --plr-since 2026-08-01 --plr-until 2026-0
 uv run plrtool wait     --csv targets.csv --timeout 100m --dump-completed
 uv run plrtool delete   --csv targets.csv --timeout 1m
 uv run plrtool timing   --cache DIR --gantt-chart chart.png --summary stats.json
+uv run plrtool timing   --cache DIR --start-histogram starts.png --duration-histogram durations.png --histogram-buckets 50
 uv run plrtool errors   --cache DIR
 uv run plrtool normalize plr.yaml [--params-only]
 ```

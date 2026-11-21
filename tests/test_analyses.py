@@ -179,6 +179,65 @@ def test_run_timing_per_pr_detail_gated_by_details(tmp_path, capsys):
     assert "total=40" in out
 
 
+def test_run_timing_histograms(tmp_path, monkeypatch):
+    from datetime import datetime
+
+    captured = []
+
+    def fake_render(values, buckets, title, xlabel, output, datetime_x=False):
+        captured.append((values, buckets, title, datetime_x))
+
+    monkeypatch.setattr("plrtool.timing._render_histogram", fake_render)
+    store = CacheStore(tmp_path)
+    store.add_plr(
+        raw_plr(
+            "ok-1",
+            created="2026-08-13T10:00:00Z",
+            started="2026-08-13T10:00:10Z",
+            completed="2026-08-13T10:00:40Z",
+        )
+    )
+    # Failed PLR has a start time too: must feed the start histogram.
+    store.add_plr(
+        raw_plr(
+            "bad-1",
+            status="False",
+            reason="Failed",
+            started="2026-08-13T10:00:20Z",
+            completed="2026-08-13T10:01:00Z",
+        )
+    )
+    run_timing(
+        store,
+        TimingOptions(
+            start_histogram="starts.png",
+            duration_histogram="durations.png",
+            histogram_buckets=7,
+        ),
+    )
+    starts, durations = captured
+    # Start histogram: every cached PLR with a startTime, custom bucket count.
+    assert starts[1] == 7 and starts[3] is True
+    assert [v.second for v in starts[0]] == [10, 20]
+    assert starts[0][1] == datetime(2026, 8, 13, 10, 0, 20, tzinfo=UTC)
+    # Duration histogram: succeeded PLRs only, running seconds (startTime -> completion).
+    assert durations[1] == 7 and durations[3] is False
+    assert durations[0] == [30]
+
+
+def test_render_histogram_valid_png(tmp_path):
+    from plrtool.timing import _render_histogram
+
+    out = tmp_path / "hist.png"
+    _render_histogram([1, 2, 2, 3], 2, "t", "x", str(out))
+    assert out.is_file()
+    assert out.stat().st_size > 0
+    # No data -> no file, just a skip message.
+    skipped = tmp_path / "empty.png"
+    _render_histogram([], 2, "t", "x", str(skipped))
+    assert not skipped.exists()
+
+
 def test_run_errors_section_headers_with_counts(tmp_path, capsys):
     store = CacheStore(tmp_path)
     store.add_plr(raw_plr("bad-1", status="False", reason="Failed"))

@@ -134,8 +134,50 @@ class _Gantt:
         print(f"Generated Gantt diagram to {BLUE}{output}{RESET}")
 
 
+def _render_histogram(
+    values: list,
+    buckets: int,
+    title: str,
+    xlabel: str,
+    output: str,
+    datetime_x: bool = False,
+) -> None:
+    """Render a count histogram (equal-width buckets over min..max) to the given PNG path."""
+    if not values:
+        print(f"Skipped generating {title} histogram because data were missing")
+        return
+    import matplotlib
+    import matplotlib.pyplot as plt
+    from matplotlib import dates as mdates
+
+    matplotlib.use("Agg")
+    fig = plt.figure(figsize=(12, 5), dpi=100)
+    ax = fig.add_subplot(111)
+    ax.hist(values, bins=buckets, color="#0000FF", edgecolor="black", linewidth=0.3)
+    if datetime_x:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("count")
+    ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(output)
+    plt.close(fig)
+    print(f"Generated {title} histogram to {BLUE}{output}{RESET}")
+
+
 def run_timing(store: CacheStore, options: TimingOptions) -> int:
     """Timing analysis over cached *succeeded* PLRs (cache only, no cluster)."""
+    if options.start_histogram:
+        all_started = [rec.started for rec in store.plrs.values() if rec.started is not None]
+        _render_histogram(
+            all_started,
+            options.histogram_buckets,
+            "PipelineRun starts",
+            "start time",
+            options.start_histogram,
+            datetime_x=True,
+        )
     plrs = sorted(
         (rec for rec in store.plrs.values() if rec.succeeded_status == "True"),
         key=lambda rec: (
@@ -231,6 +273,15 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
     if options.gantt_chart:
         gantt.render(options.gantt_chart)
 
+    if options.duration_histogram:
+        _render_histogram(
+            running_durations,
+            options.histogram_buckets,
+            "PipelineRun durations",
+            "duration [s]",
+            options.duration_histogram,
+        )
+
     section("Summary", f"{len(plrs)} succeeded PipelineRuns")
     _print_ts_range("creationTimestamp", created_epochs)
     _print_ts_range("startTime", started_epochs)
@@ -325,6 +376,11 @@ def cmd_timing(args: argparse.Namespace) -> int:
     """CLI entry for 'timing'."""
     store = CacheStore(Path(args.cache)).load()
     options = TimingOptions(
-        gantt_chart=args.gantt_chart, summary=args.summary, details=args.details
+        gantt_chart=args.gantt_chart,
+        summary=args.summary,
+        details=args.details,
+        start_histogram=args.start_histogram,
+        duration_histogram=args.duration_histogram,
+        histogram_buckets=args.histogram_buckets,
     )
     return run_timing(store, options)

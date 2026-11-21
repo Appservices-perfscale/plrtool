@@ -5,7 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .constants import DEFAULT_CACHE, DEFAULT_CONCURRENCY, RETRIES, RETRY_SLEEP
+from .constants import (
+    DEFAULT_CACHE,
+    DEFAULT_CONCURRENCY,
+    DEFAULT_HISTOGRAM_BUCKETS,
+    RETRIES,
+    RETRY_SLEEP,
+)
 
 __all__ = ["DeleteOptions", "DownloadOptions", "TimingOptions", "WaitOptions"]
 # ---------------------------------------------------------------------------
@@ -57,3 +63,6 @@ class TimingOptions:
     gantt_chart: str | None = None
     summary: str | None = None
     details: bool = False
+    start_histogram: str | None = None
+    duration_histogram: str | None = None
+    histogram_buckets: int = DEFAULT_HISTOGRAM_BUCKETS

@@ -27,6 +27,20 @@ def test_cli_subcommand_help_and_defaults():
     timing_args = parse_cli(["timing", "--gantt-chart", "g.png", "--summary", "s.json"])
     assert timing_args.gantt_chart == "g.png"
     assert timing_args.summary == "s.json"
+    histogram_args = parse_cli(
+        [
+            "timing",
+            "--start-histogram",
+            "starts.png",
+            "--duration-histogram",
+            "durations.png",
+            "--histogram-buckets",
+            "42",
+        ]
+    )
+    assert histogram_args.start_histogram == "starts.png"
+    assert histogram_args.duration_histogram == "durations.png"
+    assert histogram_args.histogram_buckets == 42
 
 
 def test_cli_delete_defaults_and_override():

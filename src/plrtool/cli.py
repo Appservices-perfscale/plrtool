@@ -12,6 +12,7 @@ from .constants import (
     DEFAULT_CACHE_ENV,
     DEFAULT_CONCURRENCY,
     DEFAULT_DELETE_TIMEOUT,
+    DEFAULT_HISTOGRAM_BUCKETS,
     DEFAULT_LOG_FILE,
     DEFAULT_TIMEOUT,
 )
@@ -67,6 +68,25 @@ def add_timing_output_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--details", action="store_true", help="print per-PipelineRun timing detail lines"
+    )
+    parser.add_argument(
+        "--start-histogram",
+        metavar="PATH",
+        help="render a histogram of PLR start times (all cached PLRs) to this PNG file",
+    )
+    parser.add_argument(
+        "--duration-histogram",
+        metavar="PATH",
+        help=(
+            "render a histogram of succeeded PLR durations "
+            "(startTime to completionTime) to this PNG file"
+        ),
+    )
+    parser.add_argument(
+        "--histogram-buckets",
+        type=int,
+        default=DEFAULT_HISTOGRAM_BUCKETS,
+        help=f"number of buckets in the histograms (default: {DEFAULT_HISTOGRAM_BUCKETS})",
     )
 
 
