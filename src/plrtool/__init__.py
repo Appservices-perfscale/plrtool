@@ -6,7 +6,8 @@ existing internal section boundaries; the public surface below keeps the
 
 Subcommands (see ``plrtool.cli`` / ``plrtool download --help``):
 
-  download --cache DIR (--namespace NS --plr NAME | --csv FILE)
+  download --cache DIR (--namespace NS --plr NAME | --csv FILE |
+                     --namespace NS --plr-since ISO [--plr-until ISO])
            [--concurrency N] [--also-incomplete]
            [--details-if-failed | --details-included]
            [--with-timing [--gantt-chart PATH] [--summary FILE]]
@@ -90,6 +91,7 @@ from .targets import (
     NamespacePlrSelector,
     Target,
     TargetSelector,
+    TimeRangeSelector,
     add_selector_args,
     get_selectors,
     resolve_targets,
@@ -101,6 +103,7 @@ from .utils import (
     fmt_ts,
     normalize_message,
     parse_duration,
+    parse_iso_datetime,
     parse_ts_dt,
     percentile,
 )
@@ -149,6 +152,7 @@ __all__ = [
     "Target",
     "TargetSelector",
     "TaskRunRecord",
+    "TimeRangeSelector",
     "TimingOptions",
     "WaitOptions",
     "__version__",
@@ -182,6 +186,7 @@ __all__ = [
     "normalize_message",
     "normalize_plr",
     "parse_duration",
+    "parse_iso_datetime",
     "parse_plr",
     "parse_pod",
     "parse_taskrun",

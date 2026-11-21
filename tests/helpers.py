@@ -151,12 +151,14 @@ class FakeDynClient:
         fail_discovery_for=(),
         delete_404_for=(),
         delete_error_for=(),
+        list_pages=None,
     ):
         self.served_versions = set(served_versions)
         self.get_404_for = set(get_404_for)
         self.fail_discovery_for = set(fail_discovery_for)
         self.delete_404_for = set(delete_404_for)
         self.delete_error_for = set(delete_error_for)
+        self.list_pages = list(list_pages) if list_pages is not None else None
         self.calls = []
 
     class _Resources:
@@ -183,6 +185,14 @@ class FakeDynClient:
         if api_version in self.get_404_for:
             raise ApiException(status=404)
         return {"metadata": {"name": name}, "ok": True}
+
+    def list(self, resource, namespace="", **kwargs):
+        """List op: pops the next configured page (empty page when unconfigured)."""
+        api_version = resource["api_version"]
+        self.calls.append(("list", api_version, namespace, kwargs))
+        if self.list_pages:
+            return self.list_pages.pop(0)
+        return {"metadata": {}, "items": []}
 
     def delete(self, resource, namespace="", name="", **kwargs):
         from kubernetes.client.rest import ApiException

@@ -13,9 +13,10 @@ from plrtool.cluster import Cluster, _build_ka_client_from_host, _ka_conf_host
 class FakeKaApiClient:
     """Plain-ApiClient stand-in for _KubeArchiveClient (no network)."""
 
-    def __init__(self, fail_with=()):
+    def __init__(self, fail_with=(), pages=None):
         self.configuration = types.SimpleNamespace(host="https://ka.example")
         self.fail_with = set(fail_with)
+        self.pages = list(pages or [])
         self.calls = []
 
     def call_api(self, path, method, **kwargs):
@@ -24,9 +25,11 @@ class FakeKaApiClient:
             from kubernetes.client.rest import ApiException
 
             raise ApiException(status=404)
-        return types.SimpleNamespace(
-            data=json.dumps({"metadata": {"name": "x"}, "ok": True}).encode()
-        )
+        if self.pages:
+            payload = self.pages.pop(0)
+        else:
+            payload = {"metadata": {"name": "x"}, "ok": True}
+        return types.SimpleNamespace(data=json.dumps(payload).encode())
 
 
 SAMPLE_KA_CONF = {
@@ -273,6 +276,127 @@ def test_get_from_ka_client_falls_through_api_versions_on_404():
         "/apis/tekton.dev/v1/namespaces/ns-1/pipelineruns/plr-1",
         "/apis/tekton.dev/v1beta1/namespaces/ns-1/pipelineruns/plr-1",
     ]
+
+
+def test_ka_client_list_builds_url_with_filters():
+    from plrtool.cluster import _KubeArchiveClient
+
+    api = FakeKaApiClient(pages=[{"items": [], "metadata": {}}])
+    client = _KubeArchiveClient(api)
+    client.list(
+        client.resources.get(api_version="tekton.dev/v1", kind="PipelineRun"),
+        namespace="ns-1",
+        limit=500,
+        creationTimestampAfter="2026-08-01T00:00:00Z",
+    )
+    path = api.calls[0][0]
+    assert path.startswith("/apis/tekton.dev/v1/namespaces/ns-1/pipelineruns?")
+    assert "limit=500" in path
+    assert "creationTimestampAfter=2026-08-01T00%3A00%3A00Z" in path
+
+
+def test_list_from_follows_continue_tokens():
+    from plrtool.cluster import _KubeArchiveClient
+
+    api = FakeKaApiClient(
+        pages=[
+            {"items": [{"metadata": {"name": "plr-1"}}], "metadata": {"continue": "tok-1"}},
+            {"items": [{"metadata": {"name": "plr-2"}}], "metadata": {}},
+        ]
+    )
+    items = Cluster._list_from(_KubeArchiveClient(api), "pipelinerun", "ns-1")
+    assert [item["metadata"]["name"] for item in items] == ["plr-1", "plr-2"]
+    paths = [path for path, _, _ in api.calls]
+    assert paths[0].endswith("?limit=500")
+    assert "continue=tok-1" in paths[1]
+    assert "limit=500" in paths[1]
+
+
+def test_list_pipelinerun_names_unions_and_filters():
+    import datetime as dt
+
+    from plrtool.cluster import _KubeArchiveClient
+
+    cluster = object.__new__(Cluster)
+    cluster.dyn = FakeDynClient(
+        served_versions={"tekton.dev/v1"},
+        list_pages=[
+            {
+                "items": [
+                    {
+                        "metadata": {
+                            "name": "live-old",
+                            "creationTimestamp": "2026-07-31T00:00:00Z",
+                        }
+                    },
+                    {
+                        "metadata": {
+                            "name": "live-new",
+                            "creationTimestamp": "2026-08-02T00:00:00Z",
+                        }
+                    },
+                ],
+                "metadata": {},
+            }
+        ],
+    )
+    api = FakeKaApiClient(
+        pages=[
+            {
+                "items": [
+                    {
+                        "metadata": {
+                            "name": "live-new",
+                            "creationTimestamp": "2026-08-02T00:00:00Z",
+                        }
+                    },
+                    {
+                        "metadata": {
+                            "name": "ka-only",
+                            "creationTimestamp": "2026-08-03T00:00:00Z",
+                        }
+                    },
+                ],
+                "metadata": {"continue": "tok"},
+            },
+            {
+                "items": [
+                    {
+                        "metadata": {
+                            "name": "ka-page2",
+                            "creationTimestamp": "2026-08-04T00:00:00Z",
+                        }
+                    }
+                ],
+                "metadata": {},
+            },
+        ]
+    )
+    cluster.ka_dyn = _KubeArchiveClient(api)
+    since = dt.datetime(2026, 8, 1, tzinfo=dt.UTC)
+    until = dt.datetime(2026, 8, 5, tzinfo=dt.UTC)
+    # strict bounds: live-old (== since boundary excluded too if equal)
+    assert cluster.list_pipelinerun_names("ns-1", since, until) == [
+        "live-new",
+        "ka-only",
+        "ka-page2",
+    ]
+    # KubeArchive got the server-side time filters, the live cluster did not.
+    ka_paths = [path for path, _, _ in api.calls]
+    assert "creationTimestampAfter=2026-08-01T00%3A00%3A00Z" in ka_paths[0]
+    dyn_list_calls = [call for call in cluster.dyn.calls if call[0] == "list"]
+    assert dyn_list_calls[0][3] == {"limit": 500}
+
+
+def test_list_pipelinerun_names_raises_when_all_backends_fail():
+    cluster = object.__new__(Cluster)
+    cluster.dyn = FakeDynClient(served_versions=set())
+    cluster.ka_dyn = None
+    try:
+        cluster.list_pipelinerun_names("ns-1")
+        raise AssertionError("expected ClusterError")
+    except plrtool.ClusterError:
+        pass
 
 
 def test_delete_pipelinerun_requests_background_propagation():

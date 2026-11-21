@@ -243,8 +243,8 @@ def cmd_download(args: argparse.Namespace) -> int:
         ka_context=args.ka_context,
         ka_conf=args.ka_conf,
     )
-    targets = resolve_targets(args)
     cluster = Cluster(ka_context=options.ka_context, ka_conf=options.ka_conf)
+    targets = resolve_targets(args, cluster)
     store = CacheStore(options.cache_dir)
     exit_code = run_download(store, cluster, options, targets)
     if options.with_timing:
@@ -327,8 +327,8 @@ def cmd_wait(args: argparse.Namespace) -> int:
         dump_completed=args.dump_completed,
         delete_on_timeout=args.delete_on_timeout,
     )
-    targets = resolve_targets(args)
     cluster = Cluster()
+    targets = resolve_targets(args, cluster)
     return run_wait(cluster, options, targets)
 
 
@@ -378,6 +378,6 @@ def cmd_delete(args: argparse.Namespace) -> int:
         concurrency=args.concurrency,
         timeout=parse_duration(args.timeout),
     )
-    targets = resolve_targets(args)
     cluster = Cluster()
+    targets = resolve_targets(args, cluster)
     return run_delete(cluster, options, targets)

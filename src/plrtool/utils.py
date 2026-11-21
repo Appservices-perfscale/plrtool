@@ -17,6 +17,7 @@ __all__ = [
     "fmt_ts",
     "normalize_message",
     "parse_duration",
+    "parse_iso_datetime",
     "parse_ts_dt",
     "percentile",
 ]
@@ -39,6 +40,14 @@ def parse_ts_dt(value: object) -> dt.datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=dt.UTC)
     return parsed.astimezone(dt.UTC)
+
+
+def parse_iso_datetime(text: str) -> dt.datetime:
+    """Parse an ISO datetime (date-only allowed) into aware UTC; raise on bad input."""
+    parsed = parse_ts_dt(text)
+    if parsed is None:
+        raise PlrtoolError(f"invalid ISO datetime: {text!r}")
+    return parsed
 
 
 def fmt_ts(value: dt.datetime | None) -> str:

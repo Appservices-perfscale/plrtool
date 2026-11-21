@@ -14,14 +14,16 @@ import logging
 import os
 import time
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
 import yaml
 
-from .constants import POLL_INTERVAL
+from .constants import LIST_PAGE_SIZE, POLL_INTERVAL
 from .exceptions import ClusterError
+from .utils import fmt_ts, parse_ts_dt
 
 logger = logging.getLogger("plrtool")
 
@@ -294,6 +296,34 @@ class _KubeArchiveClient:
         )
         return json.loads(response.data.decode("utf-8"))
 
+    def list(self, resource: _KubeArchiveResource, namespace: str = "", **query: object) -> dict:
+        """List archived objects of a kind in a namespace as a plain dict.
+
+        KubeArchive mirrors the Kubernetes collection endpoints
+        (``/apis/<group>/<version>/namespaces/<ns>/<plural>``, core under
+        ``/api/<version>/...``) and supports the standard ``limit``/``continue``
+        pagination plus its own ``creationTimestampAfter``/``creationTimestampBefore``
+        filters, which are passed through from ``query``.
+        """
+        if resource.group:
+            path = (
+                f"/apis/{resource.group}/{resource.version}"
+                f"/namespaces/{namespace}/{resource.resource}"
+            )
+        else:
+            path = f"/api/{resource.version}/namespaces/{namespace}/{resource.resource}"
+        if query:
+            path = f"{path}?{urlencode(query)}"
+        response = self.client.call_api(
+            path,
+            "GET",
+            header_params={"Accept": "application/json"},
+            auth_settings=["BearerToken"],
+            _preload_content=False,
+            _return_http_data_only=True,
+        )
+        return json.loads(response.data.decode("utf-8"))
+
     def get_logs(self, namespace: str, pod: str, container: str) -> str:
         """Fetch one archived container's logs as plain text.
 
@@ -459,6 +489,104 @@ class Cluster:
         if last_error is not None:
             raise last_error
         raise ClusterError(f"no api_version available for {kind}")
+
+    @staticmethod
+    def _list_from(client: Any, kind: str, namespace: str, query: dict | None = None) -> list[dict]:
+        """List all objects of a kind in one namespace, following continue tokens.
+
+        Pages through the collection with ``limit`` + ``continue`` so results
+        beyond one page (KubeArchive defaults to 100 entries, max 1000) are not
+        silently truncated.  ``query`` holds extra collection filters (only the
+        KubeArchive ones; the live cluster ignores/filters client-side).
+        Raises the last error seen when every api_version candidate failed.
+        """
+        from kubernetes.client.rest import ApiException
+
+        api_versions, kubernetes_kind = KIND_API[kind]
+        last_error: Exception | None = None
+        for api_version in api_versions:
+            try:
+                resource = client.resources.get(api_version=api_version, kind=kubernetes_kind)
+            except Exception as exc:  # noqa: BLE001 - version not in discovery
+                last_error = exc
+                continue
+            try:
+                items: list[dict] = []
+                token: str | None = None
+                while True:
+                    page_query: dict = dict(query or {})
+                    page_query["limit"] = LIST_PAGE_SIZE
+                    if token:
+                        page_query["continue"] = token
+                    response = _to_plain_dict(
+                        client.list(resource, namespace=namespace, **page_query)
+                    )
+                    items.extend(response.get("items") or [])
+                    token = (response.get("metadata") or {}).get("continue") or None
+                    if not token:
+                        return items
+            except ApiException as exc:
+                # Try the next api_version candidate.
+                last_error = exc
+                continue
+        if last_error is not None:
+            raise last_error
+        raise ClusterError(f"no api_version available for {kind}")
+
+    def list_pipelinerun_names(
+        self, namespace: str, since: datetime | None = None, until: datetime | None = None
+    ) -> list[str]:
+        """PLR names in a namespace, optionally filtered by creationTimestamp.
+
+        Queries the live cluster and KubeArchive and unions the results.  A PLR
+        matches when ``since < creationTimestamp < until`` (strict bounds,
+        either bound optional).  KubeArchive filters server-side
+        (creationTimestampAfter/Before), the live cluster client-side.
+        Raises ClusterError when every backend failed with a non-404 error and
+        nothing was found; a backend that fails while another returns results
+        only warns (partial data beats no data).
+        """
+        from kubernetes.client.rest import ApiException
+
+        names: list[str] = []
+        seen: set[str] = set()
+        errors: list[str] = []
+        for client, label in self._candidates:
+            query: dict[str, str] = {}
+            if client is self.ka_dyn:
+                if since is not None:
+                    query["creationTimestampAfter"] = fmt_ts(since)
+                if until is not None:
+                    query["creationTimestampBefore"] = fmt_ts(until)
+            try:
+                items = self._list_from(client, "pipelinerun", namespace, query)
+            except ApiException as exc:
+                if exc.status != 404:
+                    errors.append(f"{label}: HTTP {exc.status} {exc.reason}")
+                continue
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{label}: {exc}")
+                continue
+            for item in items:
+                meta = item.get("metadata") or {}
+                created = parse_ts_dt(meta.get("creationTimestamp"))
+                if since is not None and (created is None or created <= since):
+                    continue
+                if until is not None and (created is None or created >= until):
+                    continue
+                name = meta.get("name")
+                if name and name not in seen:
+                    seen.add(name)
+                    names.append(name)
+        if not names and errors:
+            raise ClusterError(f"could not list PipelineRuns in {namespace}: " + "; ".join(errors))
+        if errors:
+            logger.warning(
+                "partial PipelineRun list for %s (some backends failed): %s",
+                namespace,
+                "; ".join(errors),
+            )
+        return names
 
     def get_object(self, kind: str, namespace: str, name: str) -> dict | None:
         """Fetch one object as a plain dict; None when not found anywhere.

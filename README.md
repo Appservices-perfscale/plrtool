@@ -18,6 +18,7 @@ make bootstrap          # dev tools + pre-commit hooks (first time)
 ```bash
 uv run plrtool download --namespace NS --plr NAME --cache DIR
 uv run plrtool download --csv targets.csv --cache DIR --details-if-failed
+uv run plrtool download --namespace NS --plr-since 2026-08-01 --plr-until 2026-08-02 --cache DIR
 uv run plrtool wait     --csv targets.csv --timeout 100m --dump-completed
 uv run plrtool delete   --csv targets.csv --timeout 1m
 uv run plrtool timing   --cache DIR --gantt-chart chart.png --summary stats.json
@@ -35,6 +36,22 @@ diff -u <(plrtool normalize aaa.yaml) <(plrtool normalize bbb.yaml)
 creation timestamp, managed fields, owner references, kubectl last-applied
 annotation), sorts map keys and lists of named objects. `--params-only` prints
 just `spec.params`. Input can be YAML or JSON.
+
+### Time-range download
+
+`--plr-since`/`--plr-until` (with `--namespace`) select every PipelineRun
+created strictly inside the given time range, in ISO format (date-only
+allowed, then midnight UTC):
+
+```bash
+uv run plrtool download --namespace NS --plr-since 2026-08-01T00:00:00Z \
+    --plr-until 2026-08-02T00:00:00Z --cache DIR --details-if-failed
+```
+
+Both bounds are optional (open-ended). PLRs are discovered by listing from
+the live cluster and KubeArchive (KubeArchive filters server-side, results
+are unioned and deduplicated), so both still-running and already-archived
+PLRs are found. Combinable with `--plr` and `--csv` (union).
 
 ### Subcommands
 
