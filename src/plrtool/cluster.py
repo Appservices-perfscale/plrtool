@@ -513,6 +513,7 @@ class Cluster:
             try:
                 items: list[dict] = []
                 token: str | None = None
+                page = 0
                 while True:
                     page_query: dict = dict(query or {})
                     page_query["limit"] = LIST_PAGE_SIZE
@@ -521,8 +522,19 @@ class Cluster:
                     response = _to_plain_dict(
                         client.list(resource, namespace=namespace, **page_query)
                     )
-                    items.extend(response.get("items") or [])
+                    page_items = response.get("items") or []
+                    items.extend(page_items)
                     token = (response.get("metadata") or {}).get("continue") or None
+                    page += 1
+                    logger.debug(
+                        "listing %s in %s: page %d returned %d item(s), %d total, more=%s",
+                        kind,
+                        namespace,
+                        page,
+                        len(page_items),
+                        len(items),
+                        bool(token),
+                    )
                     if not token:
                         return items
             except ApiException as exc:

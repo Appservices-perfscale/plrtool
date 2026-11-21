@@ -295,7 +295,9 @@ def test_ka_client_list_builds_url_with_filters():
     assert "creationTimestampAfter=2026-08-01T00%3A00%3A00Z" in path
 
 
-def test_list_from_follows_continue_tokens():
+def test_list_from_follows_continue_tokens(caplog):
+    import logging
+
     from plrtool.cluster import _KubeArchiveClient
 
     api = FakeKaApiClient(
@@ -304,12 +306,18 @@ def test_list_from_follows_continue_tokens():
             {"items": [{"metadata": {"name": "plr-2"}}], "metadata": {}},
         ]
     )
-    items = Cluster._list_from(_KubeArchiveClient(api), "pipelinerun", "ns-1")
+    with caplog.at_level(logging.DEBUG, logger="plrtool"):
+        items = Cluster._list_from(_KubeArchiveClient(api), "pipelinerun", "ns-1")
     assert [item["metadata"]["name"] for item in items] == ["plr-1", "plr-2"]
     paths = [path for path, _, _ in api.calls]
     assert paths[0].endswith("?limit=500")
     assert "continue=tok-1" in paths[1]
     assert "limit=500" in paths[1]
+    # one DEBUG line per page, with running totals
+    page_lines = [line for line in caplog.text.splitlines() if "page 1 returned" in line]
+    assert len(page_lines) == 1
+    assert "1 item(s), 1 total, more=True" in page_lines[0]
+    assert "page 2 returned 1 item(s), 2 total, more=False" in caplog.text
 
 
 def test_list_pipelinerun_names_unions_and_filters():
