@@ -16,6 +16,10 @@ from .ui import section
 from .utils import duration_seconds, epoch_of, fmt_ts, percentile
 
 __all__ = ["cmd_timing", "run_timing"]
+
+# Beyond this many rows the per-row y-tick labels become an unreadable smear
+# and their text rendering dominates the chart time; decimate to this count.
+_MAX_GANTT_LABELS = 1000
 # ---------------------------------------------------------------------------
 # 8. timing analysis
 # ---------------------------------------------------------------------------
@@ -102,30 +106,50 @@ class _Gantt:
         import matplotlib
         import matplotlib.pyplot as plt
         from matplotlib import dates as mdates
+        from matplotlib.collections import PolyCollection
 
         matplotlib.use("Agg")
         labels = list(self.rows)
+        # Flatten into parallel lists first: one vectorized date2num call and
+        # two PolyCollection artists (one per color) render vastly faster than
+        # one barh patch per segment (the old path took minutes on 40k PLRs).
+        starts: list[dt.datetime] = []
+        ends: list[dt.datetime] = []
+        ys: list[int] = []
+        colors: list[int] = []
+        for y, segments in enumerate(self.rows.values()):
+            for start, end, color in segments:
+                starts.append(start)
+                ends.append(end)
+                ys.append(y)
+                colors.append(color)
+        x0s = mdates.date2num(starts)
+        x1s = mdates.date2num(ends)
         fig = plt.figure(figsize=(12, min(max(len(labels) * 0.4, 4.0), 40.0)), dpi=100)
         ax = fig.add_subplot(111)
-        numbers = []
-        all_x: list[float] = []
-        for label in labels:
-            segments = []
-            for start, end, color in self.rows[label]:
-                x0 = mdates.date2num(start)
-                x1 = mdates.date2num(end)
-                segments.append((x0, x1, color))
-                all_x.extend((x0, x1))
-            numbers.append((label, segments))
-        x_min, x_max = min(all_x), max(all_x)
+        half = 0.3  # bar height 0.6, centered on the row
+        for color in (0, 1):
+            verts = [
+                [(x0, y - half), (x1, y - half), (x1, y + half), (x0, y + half)]
+                for x0, x1, y, c in zip(x0s, x1s, ys, colors)
+                if c == color
+            ]
+            if verts:
+                ax.add_collection(
+                    PolyCollection(verts, facecolors=self.COLORS[color], edgecolors="none")
+                )
+        x_min = min(x0s.min(), x1s.min())
+        x_max = max(x0s.max(), x1s.max())
+        # Data bbox of all bars so the y autoscale (with default margins)
+        # matches what per-bar patches used to produce.
+        ax.update_datalim([(x_min, -half), (x_max, len(labels) - 1 + half)])
         padding = max((x_max - x_min) * 0.02, 60.0 / 86400.0)
-        for y, (label, segments) in enumerate(numbers):
-            for x0, x1, color in segments:
-                ax.barh(y, x1 - x0, left=x0, height=0.6, color=self.COLORS[color])
         ax.set_xlim(x_min - padding, x_max + padding)
         ax.invert_yaxis()
-        ax.set_yticks(range(len(numbers)))
-        ax.set_yticklabels([label for label, _segs in numbers], fontsize=8)
+        step = max(1, -(-len(labels) // _MAX_GANTT_LABELS))  # ceil division
+        ticks = list(range(0, len(labels), step))
+        ax.set_yticks(ticks)
+        ax.set_yticklabels([labels[i] for i in ticks], fontsize=8)
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
         ax.grid(True, axis="x", alpha=0.3)
         fig.tight_layout()
@@ -195,7 +219,7 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
     pending_durations: list[int] = []
     running_durations: list[int] = []
     total_durations: list[int] = []
-    gantt = _Gantt()
+    gantt: _Gantt | None = _Gantt() if options.gantt_chart else None
 
     for rec in plrs:
         pr_created = epoch_of(rec.created)
@@ -219,9 +243,10 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
             if value is not None:
                 bucket.append(value)
 
-        gantt.add(f"PLR {rec.name}", rec.created, rec.started, 0)
-        if rec.started is not None:
-            gantt.add(f"PLR {rec.name}", rec.started, rec.completed, 1)
+        if gantt is not None:
+            gantt.add(f"PLR {rec.name}", rec.created, rec.started, 0)
+            if rec.started is not None:
+                gantt.add(f"PLR {rec.name}", rec.started, rec.completed, 1)
 
         if options.details:
             _print_plr_header(rec)
@@ -234,9 +259,10 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
                 trs_earliest = tr.created
             if options.details:
                 _print_tr(tr)
-            gantt.add(f"TR {tr.pipeline_task}", tr.created, tr.started, 0)
-            if tr.started is not None:
-                gantt.add(f"TR {tr.pipeline_task}", tr.started, tr.completed, 1)
+            if gantt is not None:
+                gantt.add(f"TR {tr.pipeline_task}", tr.created, tr.started, 0)
+                if tr.started is not None:
+                    gantt.add(f"TR {tr.pipeline_task}", tr.started, tr.completed, 1)
             if tr.steps:
                 first_step: dt.datetime | None = None
                 for step in tr.steps:
@@ -246,7 +272,8 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
                         print(
                             f"       {step.name!s:<35} {('n/a' if duration is None else str(duration) + 's'):>5}  {reason}"
                         )
-                    gantt.add(f"Step {step.name}", step.started_at, step.finished_at, 1)
+                    if gantt is not None:
+                        gantt.add(f"Step {step.name}", step.started_at, step.finished_at, 1)
                     if step.started_at is not None and (
                         first_step is None or step.started_at < first_step
                     ):
@@ -270,8 +297,8 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
         if options.details:
             print()
 
-    if options.gantt_chart:
-        gantt.render(options.gantt_chart)
+    if gantt is not None:
+        gantt.render(options.gantt_chart or "")
 
     if options.duration_histogram:
         _render_histogram(
