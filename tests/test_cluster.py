@@ -474,3 +474,26 @@ def test_wait_deleted_times_out_when_still_present():
     cluster = object.__new__(Cluster)
     cluster.dyn = dyn
     assert cluster.wait_deleted("ns-1", "plr-1", timeout=0.01) is False
+
+
+def test_get_object_404_debug_mentions_kubearchive_fallback(caplog):
+    # A live-cluster 404 must say the search continues in KubeArchive,
+    # so users do not read it as "object does not exist".
+    import logging
+
+    from plrtool.cluster import _KubeArchiveClient
+
+    dyn = FakeDynClient(
+        served_versions={"tekton.dev/v1", "tekton.dev/v1beta1"},
+        get_404_for={"tekton.dev/v1", "tekton.dev/v1beta1"},
+    )
+    cluster = object.__new__(Cluster)
+    cluster.dyn = dyn
+    cluster.ka_dyn = _KubeArchiveClient(FakeKaApiClient())
+    with caplog.at_level(logging.DEBUG, logger="plrtool"):
+        assert cluster.get_object("pipelinerun", "ns-1", "plr-1") is not None
+    cluster_line = [
+        line for line in caplog.text.splitlines() if "cluster: pipelinerun ns-1/plr-1" in line
+    ][0]
+    assert "not found" in cluster_line
+    assert "will try KubeArchive now" in cluster_line

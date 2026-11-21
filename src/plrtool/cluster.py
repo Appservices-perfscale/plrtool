@@ -617,13 +617,17 @@ class Cluster:
                     not_found = True
                     body = str(getattr(exc, "body", None) or "").strip()
                     detail = f": {body[:300]}" if body else ""
+                    # live cluster is always the first candidate; say where the
+                    # search continues so a 404 is not read as "does not exist"
+                    next_hint = "; will try KubeArchive now" if label == "cluster" else ""
                     logger.debug(
-                        "%s: %s %s/%s: not found%s",
+                        "%s: %s %s/%s: not found%s%s",
                         label,
                         kind,
                         namespace,
                         name,
                         detail,
+                        next_hint,
                     )
                     continue
                 errors.append(f"{label}: HTTP {exc.status} {exc.reason}")
