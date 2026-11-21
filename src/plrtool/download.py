@@ -55,6 +55,8 @@ def collect_plr_manifest(
     raw = store.read_cached_object("pipelinerun", target.plr)
     if raw is None:
         raw = cluster.get_object("pipelinerun", target.namespace, target.plr)
+        if raw is not None:
+            logger.debug("fetched PipelineRun %s/%s", target.namespace, target.plr)
     else:
         logger.debug("using cached PipelineRun %s/%s", target.namespace, target.plr)
     if raw is None:
@@ -98,6 +100,10 @@ def _fetch_details(
         raw_tr = store.read_cached_object("taskrun", tr_name)
         if raw_tr is None:
             raw_tr = cluster.get_object("taskrun", target.namespace, tr_name)
+            if raw_tr is not None:
+                logger.debug("fetched TaskRun %s/%s", target.namespace, tr_name)
+        else:
+            logger.debug("using cached TaskRun %s/%s", target.namespace, tr_name)
         if raw_tr is None:
             logger.warning("TaskRun %s/%s not found; skipping", target.namespace, tr_name)
             continue
@@ -108,6 +114,10 @@ def _fetch_details(
         raw_pod = store.read_cached_object("pod", pod_name)
         if raw_pod is None:
             raw_pod = cluster.get_object("pod", target.namespace, pod_name)
+            if raw_pod is not None:
+                logger.debug("fetched Pod %s/%s", target.namespace, pod_name)
+        else:
+            logger.debug("using cached Pod %s/%s", target.namespace, pod_name)
         if raw_pod is None:
             logger.warning("Pod %s/%s not found; skipping", target.namespace, pod_name)
         else:
@@ -208,6 +218,7 @@ def run_download(
 ) -> int:
     """Run the whole download subcommand. Returns process exit code."""
     failed = 0
+    done = 0
     with ThreadPoolExecutor(max_workers=options.concurrency) as pool:
         futures = {
             pool.submit(_collect_with_retry, store, cluster, options, target): target
@@ -215,9 +226,19 @@ def run_download(
         }
         for future in as_completed(futures):
             target = futures[future]
+            done += 1
             try:
-                if not future.result():
+                ok = future.result()
+                if not ok:
                     failed += 1
+                logger.info(
+                    "[%d/%d] %s/%s: %s",
+                    done,
+                    len(targets),
+                    target.namespace,
+                    target.plr,
+                    "failed" if not ok else "collected",
+                )
             except Exception as exc:  # noqa: BLE001
                 logger.error("%s/%s: collection failed: %s", target.namespace, target.plr, exc)
                 failed += 1

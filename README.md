@@ -37,6 +37,14 @@ creation timestamp, managed fields, owner references, kubectl last-applied
 annotation), sorts map keys and lists of named objects. `--params-only` prints
 just `spec.params`. Input can be YAML or JSON.
 
+### Logging levels
+
+Default stderr shows WARNING and above (data gaps and failures). `--verbose`
+adds INFO progress (one `[done/total]` line per PLR, phase summaries);
+`--debug` adds per-API-call chatter (every fetch, cache hit, list page).
+The log file (`~/.local/share/plrtool/plrtool.log`) always records DEBUG.
+See the convention in `src/plrtool/log.py`.
+
 ### Time-range download
 
 `--plr-since`/`--plr-until` (with `--namespace`) select every PipelineRun

@@ -333,3 +333,21 @@ def test_run_delete_reports_failed_request(caplog):
     assert "plr-a: delete request failed" in caplog.text
     assert "plr-b: delete request failed" in caplog.text
     assert set(cluster.requested) == {("ns-1", "plr-a"), ("ns-1", "plr-b")}
+
+
+def test_run_download_progress_lines(tmp_path, caplog):
+    # INFO progress: one [done/total] line per PLR, collected or failed.
+    import logging
+
+    store = CacheStore(tmp_path)
+    stub = StubCluster(objects={("pipelinerun", "ns-1", "plr-a"): raw_plr("plr-a", ns="ns-1")})
+    options = DownloadOptions(cache_dir=tmp_path, concurrency=2)
+    targets = [Target("ns-1", "plr-a"), Target("ns-1", "plr-missing")]
+    with caplog.at_level(logging.INFO, logger="plrtool"):
+        assert plrtool.run_download(store, stub, options, targets) == 1
+    # completion order is nondeterministic; only pairing matters
+    assert "ns-1/plr-a: collected" in caplog.text
+    assert "ns-1/plr-missing: failed" in caplog.text
+    assert "[1/2]" in caplog.text
+    assert "[2/2]" in caplog.text
+    assert "download: 1/2 PLRs collected" in caplog.text

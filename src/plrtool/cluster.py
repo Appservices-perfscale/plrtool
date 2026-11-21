@@ -551,6 +551,7 @@ class Cluster:
         names: list[str] = []
         seen: set[str] = set()
         errors: list[str] = []
+        counts: dict[str, int] = {}
         for client, label in self._candidates:
             query: dict[str, str] = {}
             if client is self.ka_dyn:
@@ -567,6 +568,8 @@ class Cluster:
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{label}: {exc}")
                 continue
+            counts[label] = len(items)
+            logger.debug("%s: listed %d PipelineRun(s) in %s", label, len(items), namespace)
             for item in items:
                 meta = item.get("metadata") or {}
                 created = parse_ts_dt(meta.get("creationTimestamp"))
@@ -586,6 +589,12 @@ class Cluster:
                 namespace,
                 "; ".join(errors),
             )
+        logger.info(
+            "%s: %d PipelineRun(s) in range (%s)",
+            namespace,
+            len(names),
+            ", ".join(f"{label}: {count}" for label, count in counts.items()) or "no backend",
+        )
         return names
 
     def get_object(self, kind: str, namespace: str, name: str) -> dict | None:
@@ -600,7 +609,9 @@ class Cluster:
         not_found = False
         for client, label in self._candidates:
             try:
-                return self._get_from(client, kind, namespace, name)
+                obj = self._get_from(client, kind, namespace, name)
+                logger.debug("%s: fetched %s %s/%s", label, kind, namespace, name)
+                return obj
             except ApiException as exc:
                 if exc.status == 404:
                     not_found = True

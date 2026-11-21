@@ -40,3 +40,15 @@ Common change types and where to follow the pattern (pick the closest real examp
 - New Kubernetes/KubeArchive resource fetch: follow the pattern in `cluster.py` (lazy-import `kubernetes`) and persist results via `cache.py`.
 
 Keep `utils.py` free of domain logic so it stays importable from anywhere.
+
+### Logging convention
+
+Authoritative spec: `src/plrtool/log.py` module docstring. Short version:
+
+* ERROR = target failed (exit code), WARNING = data gap user must know about
+* INFO = progress milestones (`--verbose`): phase starts/ends, one
+  `[done/total]` line per completed PLR, summaries
+* DEBUG = per-API-call chatter (`--debug`, always in the log file): every
+  object fetched/cached, every list page, 404 fallbacks
+* Every network operation logs exactly once: success at DEBUG (milestone at
+  INFO), failure at WARNING/ERROR. No silent success paths.

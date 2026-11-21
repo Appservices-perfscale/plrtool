@@ -2,6 +2,25 @@
 
 The rest of the package obtains its logger via ``logging.getLogger("plrtool")``,
 so a single ``setup_logging`` call configures every module's logger.
+
+Logging convention (keep this in sync when adding log calls)
+------------------------------------------------------------
+
+- ``ERROR``   - a target failed and counts against the exit code
+               (collection failed, delete failed).
+- ``WARNING`` - data gaps the user must know about even without flags
+               (missing TaskRun/Pod/logs, unreadable cache file, partial
+               backend results).
+- ``INFO``    - progress milestones, visible with ``--verbose``: phase
+               starts/ends, one line per completed PLR with a running
+               ``[done/total]`` count, final summaries.
+- ``DEBUG``   - per-API-call chatter, visible with ``--debug`` and always
+               written to the log file: every object fetched or taken from
+               the cache, every list page, 404 fallbacks, retries.
+
+Rule of thumb: every network operation logs exactly once - success at
+DEBUG (milestones at INFO), failure at WARNING or ERROR.  A silent run
+must mean nothing happened; default (no flags) stderr shows WARNING+.
 """
 
 from __future__ import annotations
