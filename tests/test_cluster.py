@@ -225,11 +225,12 @@ def test_get_logs_prefers_live_cluster():
     cluster.ka_dyn = _KubeArchiveClient(api)
 
     class OkCore:
-        def read_namespaced_pod_log(self, namespace, pod, container):
-            return "live-log"
+        def read_namespaced_pod_log(self, name, namespace, container):
+            # real CoreV1Api signature: name (pod) first, namespace second.
+            return f"live-log:{namespace}/{name}/{container}"
 
     cluster.core = OkCore()
-    assert cluster.get_logs("n", "p", "c") == "live-log"
+    assert cluster.get_logs("ns-1", "pod-1", "c-1") == "live-log:ns-1/pod-1/c-1"
     assert api.calls == []  # live cluster served the logs; KA never consulted
 
 
@@ -243,7 +244,7 @@ def test_get_logs_falls_back_to_kubearchive():
     cluster.ka_dyn = _KubeArchiveClient(api)
 
     class FailCore:
-        def read_namespaced_pod_log(self, namespace, pod, container):
+        def read_namespaced_pod_log(self, name, namespace, container):
             raise ApiException(status=404)
 
     cluster.core = FailCore()
@@ -258,7 +259,7 @@ def test_get_logs_returns_none_without_kubearchive():
     cluster.ka_dyn = None
 
     class FailCore:
-        def read_namespaced_pod_log(self, namespace, pod, container):
+        def read_namespaced_pod_log(self, name, namespace, container):
             raise ApiException(status=404)
 
     cluster.core = FailCore()

@@ -663,10 +663,18 @@ class Cluster:
         from kubernetes.client.rest import ApiException
 
         try:
-            return self.core.read_namespaced_pod_log(namespace, pod, container=container)
+            return self.core.read_namespaced_pod_log(
+                name=pod, namespace=namespace, container=container
+            )
         except ApiException as exc:
+            body = str(getattr(exc, "body", None) or "").strip()
             logger.debug(
-                "no live logs for %s/%s %s: HTTP %d", namespace, pod, container, exc.status
+                "no live logs for %s/%s %s: HTTP %d %s",
+                namespace,
+                pod,
+                container,
+                exc.status,
+                body[:300],
             )
         except Exception as exc:  # noqa: BLE001
             logger.debug("no live logs for %s/%s %s: %s", namespace, pod, container, exc)
@@ -675,12 +683,14 @@ class Cluster:
         try:
             return self.ka_dyn.get_logs(namespace, pod, container)
         except ApiException as exc:
+            body = str(getattr(exc, "body", None) or "").strip()
             logger.debug(
-                "no KubeArchive logs for %s/%s %s: HTTP %d",
+                "no KubeArchive logs for %s/%s %s: HTTP %d %s",
                 namespace,
                 pod,
                 container,
                 exc.status,
+                body[:300],
             )
             return None
         except Exception as exc:  # noqa: BLE001
