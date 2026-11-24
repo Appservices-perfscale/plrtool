@@ -170,6 +170,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "timing", help="analyze cached succeeded PLR timings (cache only)"
     )
     add_cache_arg(timing)
+    timing.add_argument(
+        "--plr",
+        metavar="PLR_NAME",
+        help="restrict the analysis to a single cached PipelineRun by name",
+    )
     add_timing_output_args(timing)
 
     errors = subparsers.add_parser(

@@ -41,6 +41,9 @@ def test_cli_subcommand_help_and_defaults():
     assert histogram_args.start_histogram == "starts.png"
     assert histogram_args.duration_histogram == "durations.png"
     assert histogram_args.histogram_buckets == 42
+    plr_args = parse_cli(["timing", "--plr", "my-plr"])
+    assert plr_args.plr == "my-plr"
+    assert parse_cli(["timing"]).plr is None
 
 
 def test_cli_delete_defaults_and_override():

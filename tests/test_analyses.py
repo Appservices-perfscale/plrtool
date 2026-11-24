@@ -47,6 +47,39 @@ def test_run_timing_empty_store(tmp_path):
     assert run_timing(CacheStore(tmp_path), TimingOptions()) == 0
 
 
+def test_run_timing_plr_name_filters_to_single_plr(tmp_path):
+    store = CacheStore(tmp_path)
+    store.add_plr(
+        raw_plr(
+            "ok-1",
+            created="2026-08-13T10:00:00Z",
+            started="2026-08-13T10:00:10Z",
+            completed="2026-08-13T10:00:40Z",
+        )
+    )
+    store.add_plr(
+        raw_plr(
+            "ok-2",
+            created="2026-08-13T10:00:20Z",
+            started="2026-08-13T10:00:40Z",
+            completed="2026-08-13T10:01:00Z",
+        )
+    )
+    summary = tmp_path / "summary.json"
+    exit_code = run_timing(store, TimingOptions(summary=str(summary), plr_name="ok-1"))
+    assert exit_code == 0
+    document = json.loads(summary.read_text(encoding="utf-8"))
+    assert document["Succeeded"]["total"] == 1
+    assert document["pending"]["min"] == 10
+    assert document["pending"]["max"] == 10
+
+
+def test_run_timing_plr_name_not_found(tmp_path):
+    store = CacheStore(tmp_path)
+    store.add_plr(raw_plr("ok-1"))
+    assert run_timing(store, TimingOptions(plr_name="nope")) == 1
+
+
 def test_run_timing_gantt_pending_running_end_to_end(tmp_path, monkeypatch):
     from plrtool import timing as timing_mod
 

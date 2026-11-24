@@ -192,8 +192,16 @@ def _render_histogram(
 
 def run_timing(store: CacheStore, options: TimingOptions) -> int:
     """Timing analysis over cached *succeeded* PLRs (cache only, no cluster)."""
+    if options.plr_name is not None:
+        rec = store.plrs.get(options.plr_name)
+        if rec is None:
+            logger.warning("PipelineRun '%s' not found in %s", options.plr_name, store.path)
+            return 1
+        plr_records = [rec]
+    else:
+        plr_records = list(store.plrs.values())
     if options.start_histogram:
-        all_started = [rec.started for rec in store.plrs.values() if rec.started is not None]
+        all_started = [rec.started for rec in plr_records if rec.started is not None]
         _render_histogram(
             all_started,
             options.histogram_buckets,
@@ -203,7 +211,7 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
             datetime_x=True,
         )
     plrs = sorted(
-        (rec for rec in store.plrs.values() if rec.succeeded_status == "True"),
+        (rec for rec in plr_records if rec.succeeded_status == "True"),
         key=lambda rec: (
             rec.started is None,
             rec.started or dt.datetime.min.replace(tzinfo=dt.UTC),
@@ -409,5 +417,6 @@ def cmd_timing(args: argparse.Namespace) -> int:
         start_histogram=args.start_histogram,
         duration_histogram=args.duration_histogram,
         histogram_buckets=args.histogram_buckets,
+        plr_name=args.plr,
     )
     return run_timing(store, options)

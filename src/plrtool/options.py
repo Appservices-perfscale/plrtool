@@ -66,3 +66,4 @@ class TimingOptions:
     start_histogram: str | None = None
     duration_histogram: str | None = None
     histogram_buckets: int = DEFAULT_HISTOGRAM_BUCKETS
+    plr_name: str | None = None
