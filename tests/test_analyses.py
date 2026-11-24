@@ -212,6 +212,42 @@ def test_run_timing_per_pr_detail_gated_by_details(tmp_path, capsys):
     assert "total=40" in out
 
 
+def test_run_timing_details_labels_step_and_pod_sections(tmp_path, capsys):
+    """--details labels the step list and the pod condition/container blocks."""
+    store = CacheStore(tmp_path)
+    store.add_plr(
+        raw_plr(
+            "ok-1",
+            created="2026-08-13T10:00:00Z",
+            started="2026-08-13T10:00:10Z",
+            completed="2026-08-13T10:00:40Z",
+            refs=["ok-1-task"],
+        )
+    )
+    store.add_taskrun(
+        raw_taskrun(
+            "ok-1-task",
+            pod="pod-1",
+            steps=[("clone", "2026-08-13T10:00:11Z", "2026-08-13T10:00:14Z")],
+        )
+    )
+    store.add_pod(
+        raw_pod(
+            "pod-1",
+            conds=[("PodScheduled", "True", "-", "2026-08-13T10:00:09Z")],
+            containers=[
+                ("prepare", "Completed", "2026-08-13T10:00:11Z", "2026-08-13T10:00:12Z", 0)
+            ],
+        )
+    )
+    store.load()  # link TaskRun/Pod onto the PLR record
+    run_timing(store, TimingOptions(details=True))
+    out = capsys.readouterr().out
+    assert "TaskRun steps:" in out
+    assert "Pod conditions:" in out
+    assert "Pod container durations:" in out
+
+
 def test_run_timing_histograms(tmp_path, monkeypatch):
     from datetime import datetime
 

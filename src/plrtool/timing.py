@@ -273,6 +273,8 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
                     gantt.add(f"TR {tr.pipeline_task}", tr.started, tr.completed, 1)
             if tr.steps:
                 first_step: dt.datetime | None = None
+                if options.details:
+                    print(f"     {YELLOW}TaskRun steps:{RESET}")
                 for step in tr.steps:
                     duration = duration_seconds(step.started_at, step.finished_at)
                     reason = step.reason or "n/a"
@@ -372,8 +374,12 @@ def _print_tr(tr: TaskRunRecord) -> None:
 def _print_pod(pod: PodRecord) -> None:
     """Print the pod node, conditions and container lines (original format)."""
     print(f"     {YELLOW}Pod '{pod.name}' on node {BLUE}{pod.node or 'null'}{RESET}")
+    if pod.conditions:
+        print(f"       {YELLOW}Pod conditions:{RESET}")
     for ctype, cstatus, creason, ctime in pod.conditions:
         print(f"         {ctype!s:<20} {cstatus or '-'!s:<6} {creason or '-'!s:<25} {ctime or '-'}")
+    if pod.containers:
+        print(f"       {YELLOW}Pod container durations:{RESET}")
     for container in pod.containers:
         duration = duration_seconds(container.terminated_started, container.terminated_finished)
         duration_text = "n/a" if duration is None else f"{duration}s"
