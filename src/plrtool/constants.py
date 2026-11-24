@@ -25,7 +25,11 @@ DEFAULT_DELETE_TIMEOUT = "1m"
 RETRIES = 3
 RETRY_SLEEP = 1.0
 POLL_INTERVAL = 5.0
-LIST_PAGE_SIZE = 500
+# KubeArchive list page size.  100 is the KubeArchive default: large pages
+# (~500 PLRs = ~10MB) can hit the KubeArchive API server's DB statement
+# timeout mid-stream, which truncates the JSON body (HTTP 200 + invalid
+# JSON).  Smaller pages keep each query short.
+LIST_PAGE_SIZE = 100
 MISSING = "missing"
 
 TD_FMT = "%Y-%m-%dT%H:%M:%SZ"

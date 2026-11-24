@@ -258,7 +258,7 @@ class _KubeArchiveClient:
     endpoints (``/version``, ``/api``, ``/apis`` all 404).  A stock
     DynamicClient would die on construction because its eager discovery
     requests ``/version`` first.  This adapter exposes just the DynamicClient
-    surface plrtool uses (``resources.get`` + ``get``) over a plain
+    surface plrtool uses (``resources.get`` + ``get``/``list``) over a plain
     authenticated ``kubernetes.client.ApiClient``.
     """
 
@@ -294,7 +294,7 @@ class _KubeArchiveClient:
             _preload_content=False,
             _return_http_data_only=True,
         )
-        return json.loads(response.data.decode("utf-8"))
+        return _parse_ka_json(path, response)
 
     def list(self, resource: _KubeArchiveResource, namespace: str = "", **query: object) -> dict:
         """List archived objects of a kind in a namespace as a plain dict.
@@ -322,7 +322,7 @@ class _KubeArchiveClient:
             _preload_content=False,
             _return_http_data_only=True,
         )
-        return json.loads(response.data.decode("utf-8"))
+        return _parse_ka_json(path, response)
 
     def get_logs(self, namespace: str, pod: str, container: str) -> str:
         """Fetch one archived container's logs as plain text.
@@ -411,6 +411,26 @@ def _to_plain_dict(obj: Any) -> dict:
     if isinstance(obj, dict):
         return obj
     return dict(obj)
+
+
+def _parse_ka_json(path: str, response: Any) -> dict:
+    """Decode a KubeArchive JSON body; ClusterError on truncated output.
+
+    The KubeArchive API server streams large list responses row by row;
+    when the database errors mid-stream (e.g. a statement timeout) it has
+    already sent HTTP 200 plus a partial body and simply stops.  The client
+    then sees invalid JSON, so a raw JSONDecodeError is wrapped into a
+    ClusterError that says what actually happened.
+    """
+    body = response.data.decode("utf-8", errors="replace")
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise ClusterError(
+            f"kubearchive returned invalid JSON from {path} "
+            f"({len(body)} bytes, parse error at char {exc.pos}): "
+            "response was likely truncated by a server-side stream error"
+        ) from exc
 
 
 class Cluster:
@@ -519,9 +539,20 @@ class Cluster:
                     page_query["limit"] = LIST_PAGE_SIZE
                     if token:
                         page_query["continue"] = token
-                    response = _to_plain_dict(
-                        client.list(resource, namespace=namespace, **page_query)
-                    )
+                    if isinstance(client, _KubeArchiveClient):
+                        response = _to_plain_dict(
+                            client.list(resource, namespace=namespace, **page_query)
+                        )
+                    else:
+                        # kubernetes DynamicClient has no .list method; a GET
+                        # without a name lists the collection, and request()
+                        # maps limit/_continue to the standard query params.
+                        dyn_query: dict = {"limit": page_query["limit"]}
+                        if token:
+                            dyn_query["_continue"] = token
+                        response = _to_plain_dict(
+                            client.get(resource, namespace=namespace, **dyn_query)
+                        )
                     page_items = response.get("items") or []
                     items.extend(page_items)
                     token = (response.get("metadata") or {}).get("continue") or None

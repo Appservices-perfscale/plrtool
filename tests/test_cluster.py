@@ -13,10 +13,11 @@ from plrtool.cluster import Cluster, _build_ka_client_from_host, _ka_conf_host
 class FakeKaApiClient:
     """Plain-ApiClient stand-in for _KubeArchiveClient (no network)."""
 
-    def __init__(self, fail_with=(), pages=None):
+    def __init__(self, fail_with=(), pages=None, raw_pages=None):
         self.configuration = types.SimpleNamespace(host="https://ka.example")
         self.fail_with = set(fail_with)
         self.pages = list(pages or [])
+        self.raw_pages = list(raw_pages or [])
         self.calls = []
 
     def call_api(self, path, method, **kwargs):
@@ -25,6 +26,8 @@ class FakeKaApiClient:
             from kubernetes.client.rest import ApiException
 
             raise ApiException(status=404)
+        if self.raw_pages:
+            return types.SimpleNamespace(data=self.raw_pages.pop(0))
         if self.pages:
             payload = self.pages.pop(0)
         else:
@@ -311,14 +314,28 @@ def test_list_from_follows_continue_tokens(caplog):
         items = Cluster._list_from(_KubeArchiveClient(api), "pipelinerun", "ns-1")
     assert [item["metadata"]["name"] for item in items] == ["plr-1", "plr-2"]
     paths = [path for path, _, _ in api.calls]
-    assert paths[0].endswith("?limit=500")
+    assert paths[0].endswith("?limit=100")
     assert "continue=tok-1" in paths[1]
-    assert "limit=500" in paths[1]
+    assert "limit=100" in paths[1]
     # one DEBUG line per page, with running totals
     page_lines = [line for line in caplog.text.splitlines() if "page 1 returned" in line]
     assert len(page_lines) == 1
     assert "1 item(s), 1 total, more=True" in page_lines[0]
     assert "page 2 returned 1 item(s), 2 total, more=False" in caplog.text
+
+
+def test_ka_client_list_wraps_truncated_json():
+    """Truncated KubeArchive body (HTTP 200, mid-stream DB error) -> ClusterError."""
+    from plrtool.cluster import _KubeArchiveClient
+
+    api = FakeKaApiClient(raw_pages=[b'{"kind": "List", "items": [{"a": 1}'])
+    client = _KubeArchiveClient(api)
+    try:
+        client.list(client.resources.get(api_version="v1", kind="Pod"), namespace="ns-1")
+        raise AssertionError("expected ClusterError")
+    except plrtool.ClusterError as exc:
+        assert "truncated" in str(exc)
+        assert "35 bytes" in str(exc)
 
 
 def test_list_pipelinerun_names_unions_and_filters():
@@ -394,7 +411,7 @@ def test_list_pipelinerun_names_unions_and_filters():
     ka_paths = [path for path, _, _ in api.calls]
     assert "creationTimestampAfter=2026-08-01T00%3A00%3A00Z" in ka_paths[0]
     dyn_list_calls = [call for call in cluster.dyn.calls if call[0] == "list"]
-    assert dyn_list_calls[0][3] == {"limit": 500}
+    assert dyn_list_calls[0][3] == {"limit": 100}
 
 
 def test_list_pipelinerun_names_raises_when_all_backends_fail():

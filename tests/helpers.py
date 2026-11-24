@@ -142,7 +142,12 @@ class StubCluster:
 
 
 class FakeDynClient:
-    """Stand-in for a kubernetes DynamicClient recording api_version attempts."""
+    """Stand-in for a kubernetes DynamicClient recording api_version attempts.
+
+    Mirrors the real DynamicClient surface: it has no ``list`` method, so a
+    collection list is a ``get`` without a name (``limit``/``_continue`` ride
+    along as query params).
+    """
 
     def __init__(
         self,
@@ -177,22 +182,20 @@ class FakeDynClient:
     def resources(self):
         return self._Resources(self)
 
-    def get(self, resource, namespace="", name=""):
+    def get(self, resource, namespace="", name=None, **kwargs):
+        """Object GET; without a name, the next configured list page."""
         from kubernetes.client.rest import ApiException
 
         api_version = resource["api_version"]
+        if name is None:
+            self.calls.append(("list", api_version, namespace, kwargs))
+            if self.list_pages:
+                return self.list_pages.pop(0)
+            return {"metadata": {}, "items": []}
         self.calls.append(("get", api_version, namespace, name))
         if api_version in self.get_404_for:
             raise ApiException(status=404)
         return {"metadata": {"name": name}, "ok": True}
-
-    def list(self, resource, namespace="", **kwargs):
-        """List op: pops the next configured page (empty page when unconfigured)."""
-        api_version = resource["api_version"]
-        self.calls.append(("list", api_version, namespace, kwargs))
-        if self.list_pages:
-            return self.list_pages.pop(0)
-        return {"metadata": {}, "items": []}
 
     def delete(self, resource, namespace="", name="", **kwargs):
         from kubernetes.client.rest import ApiException
