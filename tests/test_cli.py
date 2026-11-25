@@ -44,6 +44,13 @@ def test_cli_subcommand_help_and_defaults():
     plr_args = parse_cli(["timing", "--plr", "my-plr"])
     assert plr_args.plr == "my-plr"
     assert parse_cli(["timing"]).plr is None
+    assert parse_cli(["timing", "--details-json", "d.json"]).details_json == "d.json"
+    assert parse_cli(["timing"]).details_json is None
+    # download passthrough: --with-timing accepts the same output flags.
+    dl_args = parse_cli(
+        ["download", "--namespace", "n", "--plr", "p", "--with-timing", "--details-json", "d.json"]
+    )
+    assert dl_args.details_json == "d.json"
 
 
 def test_cli_delete_defaults_and_override():

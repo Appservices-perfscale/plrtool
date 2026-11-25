@@ -228,6 +228,7 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
     running_durations: list[int] = []
     total_durations: list[int] = []
     gantt: _Gantt | None = _Gantt() if options.gantt_chart else None
+    details_json: dict | None = {} if options.details_json else None
 
     for rec in plrs:
         pr_created = epoch_of(rec.created)
@@ -258,6 +259,8 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
 
         if options.details:
             _print_plr_header(rec)
+        if details_json is not None:
+            details_json[rec.name] = _plr_details_entry(rec)
 
         trs_earliest: dt.datetime | None = None
         for tr in sorted(
@@ -338,7 +341,95 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
             total_durations,
             len(plrs),
         )
+    if details_json is not None:
+        _write_details_json(options.details_json or "", details_json)
     return 0
+
+
+def _iso_ts(value: dt.datetime | None) -> str | None:
+    """Format a datetime as an ISO 8601 UTC string, or None."""
+    if value is None:
+        return None
+    return value.astimezone(dt.UTC).isoformat()
+
+
+def _plr_details_entry(rec: PLRRecord) -> dict:
+    """Build the per-PLR details dict for --details-json (mirrors the printout)."""
+    taskruns = []
+    trs_earliest: dt.datetime | None = None
+    for tr in sorted(
+        rec.taskruns, key=lambda item: item.created or dt.datetime.min.replace(tzinfo=dt.UTC)
+    ):
+        if tr.created is not None and (trs_earliest is None or tr.created < trs_earliest):
+            trs_earliest = tr.created
+        taskruns.append(_tr_details_entry(tr))
+    plr_wait = None
+    if rec.created is not None and trs_earliest is not None:
+        plr_wait = int((trs_earliest - rec.created).total_seconds())
+    return {
+        "pipeline": rec.pipeline,
+        "created": _iso_ts(rec.created),
+        "started": _iso_ts(rec.started),
+        "completed": _iso_ts(rec.completed),
+        "pending": duration_seconds(rec.created, rec.started),
+        "running": duration_seconds(rec.started, rec.completed),
+        "total": duration_seconds(rec.created, rec.completed),
+        "plr_wait_time": plr_wait,
+        "taskruns": taskruns,
+    }
+
+
+def _tr_details_entry(tr: TaskRunRecord) -> dict:
+    """Build the per-TaskRun details dict for --details-json (mirrors the printout)."""
+    steps = []
+    first_step: dt.datetime | None = None
+    for step in tr.steps:
+        if step.started_at is not None and (first_step is None or step.started_at < first_step):
+            first_step = step.started_at
+        steps.append(
+            {
+                "name": step.name,
+                "duration": duration_seconds(step.started_at, step.finished_at),
+                "reason": step.reason,
+                "started": _iso_ts(step.started_at),
+                "finished": _iso_ts(step.finished_at),
+            }
+        )
+    tr_wait = None
+    if first_step is not None and tr.created is not None:
+        tr_wait = int((first_step - tr.created).total_seconds())
+    return {
+        "name": tr.name,
+        "pipeline_task": tr.pipeline_task,
+        "created": _iso_ts(tr.created),
+        "started": _iso_ts(tr.started),
+        "completed": _iso_ts(tr.completed),
+        "pending": duration_seconds(tr.created, tr.started),
+        "running": duration_seconds(tr.started, tr.completed),
+        "total": duration_seconds(tr.created, tr.completed),
+        "tr_wait_time": tr_wait,
+        "steps": steps,
+        "pod": _pod_details_entry(tr.pod) if tr.pod is not None else None,
+    }
+
+
+def _pod_details_entry(pod: PodRecord) -> dict:
+    """Build the per-Pod details dict for --details-json (mirrors the printout)."""
+    conditions = [
+        {"type": ctype, "status": cstatus, "reason": creason, "time": ctime}
+        for ctype, cstatus, creason, ctime in pod.conditions
+    ]
+    containers = [
+        {
+            "name": container.name,
+            "duration": duration_seconds(
+                container.terminated_started, container.terminated_finished
+            ),
+            "reason": container.terminated_reason,
+        }
+        for container in pod.containers
+    ]
+    return {"name": pod.name, "node": pod.node, "conditions": conditions, "containers": containers}
 
 
 def _print_plr_header(rec: PLRRecord) -> None:
@@ -413,6 +504,14 @@ def _write_summary(
     print(f"Wrote summary stats to {BLUE}{target}{RESET}")
 
 
+def _write_details_json(path: str, document: dict) -> None:
+    """Write per-PLR timing details as JSON (top-level dict keyed by PLR name)."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(document, indent=1) + "\n", encoding="utf-8")
+    print(f"Wrote PLR details to {BLUE}{target}{RESET}")
+
+
 def cmd_timing(args: argparse.Namespace) -> int:
     """CLI entry for 'timing'."""
     store = CacheStore(Path(args.cache)).load()
@@ -420,6 +519,7 @@ def cmd_timing(args: argparse.Namespace) -> int:
         gantt_chart=args.gantt_chart,
         summary=args.summary,
         details=args.details,
+        details_json=args.details_json,
         start_histogram=args.start_histogram,
         duration_histogram=args.duration_histogram,
         histogram_buckets=args.histogram_buckets,

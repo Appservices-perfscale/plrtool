@@ -70,6 +70,14 @@ def add_timing_output_args(parser: argparse.ArgumentParser) -> None:
         "--details", action="store_true", help="print per-PipelineRun timing detail lines"
     )
     parser.add_argument(
+        "--details-json",
+        metavar="FILE",
+        help=(
+            "write per-PipelineRun timing details as JSON to this file "
+            "(implies --details data, no printing needed)"
+        ),
+    )
+    parser.add_argument(
         "--start-histogram",
         metavar="PATH",
         help="render a histogram of PLR start times (all cached PLRs) to this PNG file",

@@ -212,6 +212,58 @@ def test_run_timing_per_pr_detail_gated_by_details(tmp_path, capsys):
     assert "total=40" in out
 
 
+def test_run_timing_details_json_writes_per_plr_document(tmp_path, capsys):
+    """--details-json dumps the details investigation as a PLR-keyed dict, no --details needed."""
+    store = CacheStore(tmp_path)
+    store.add_plr(
+        raw_plr(
+            "ok-1",
+            created="2026-08-13T10:00:00Z",
+            started="2026-08-13T10:00:10Z",
+            completed="2026-08-13T10:00:40Z",
+            refs=["ok-1-task"],
+        )
+    )
+    store.add_taskrun(
+        raw_taskrun(
+            "ok-1-task",
+            pod="pod-1",
+            steps=[("clone", "2026-08-13T10:00:11Z", "2026-08-13T10:00:14Z")],
+        )
+    )
+    store.add_pod(
+        raw_pod(
+            "pod-1",
+            conds=[("PodScheduled", "True", "-", "2026-08-13T10:00:09Z")],
+            containers=[
+                ("prepare", "Completed", "2026-08-13T10:00:11Z", "2026-08-13T10:00:12Z", 0)
+            ],
+        )
+    )
+    store.load()  # link TaskRun/Pod onto the PLR record
+    out_file = tmp_path / "details.json"
+    exit_code = run_timing(store, TimingOptions(details_json=str(out_file)))
+    assert exit_code == 0
+    # No --details flag => no per-PLR printout, only the file write message.
+    out = capsys.readouterr().out
+    assert "PipelineRun 'ok-1' (" not in out
+    assert "Wrote PLR details to" in out
+    document = json.loads(out_file.read_text(encoding="utf-8"))
+    assert list(document) == ["ok-1"]
+    plr = document["ok-1"]
+    assert plr["created"] == "2026-08-13T10:00:00+00:00"
+    assert plr["pending"] == 10
+    assert plr["running"] == 30
+    assert plr["total"] == 40
+    assert plr["plr_wait_time"] == 6  # PLR created 10:00:00, TR created 10:00:06
+    tr = plr["taskruns"][0]
+    assert tr["name"] == "ok-1-task"
+    assert tr["tr_wait_time"] == 5  # TR created 10:00:06, first step start 10:00:11
+    assert tr["steps"][0]["name"] == "clone"
+    assert tr["steps"][0]["duration"] == 3
+    assert tr["pod"]["containers"][0]["duration"] == 1
+
+
 def test_run_timing_details_labels_step_and_pod_sections(tmp_path, capsys):
     """--details labels the step list and the pod condition/container blocks."""
     store = CacheStore(tmp_path)

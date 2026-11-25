@@ -63,6 +63,7 @@ class TimingOptions:
     gantt_chart: str | None = None
     summary: str | None = None
     details: bool = False
+    details_json: str | None = None
     start_histogram: str | None = None
     duration_histogram: str | None = None
     histogram_buckets: int = DEFAULT_HISTOGRAM_BUCKETS
