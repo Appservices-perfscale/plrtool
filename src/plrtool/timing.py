@@ -367,6 +367,7 @@ def _plr_details_entry(rec: PLRRecord) -> dict:
     if rec.created is not None and trs_earliest is not None:
         plr_wait = int((trs_earliest - rec.created).total_seconds())
     return {
+        "name": rec.name,
         "pipeline": rec.pipeline,
         "created": _iso_ts(rec.created),
         "started": _iso_ts(rec.started),

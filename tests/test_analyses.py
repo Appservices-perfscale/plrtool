@@ -251,6 +251,7 @@ def test_run_timing_details_json_writes_per_plr_document(tmp_path, capsys):
     document = json.loads(out_file.read_text(encoding="utf-8"))
     assert list(document) == ["ok-1"]
     plr = document["ok-1"]
+    assert plr["name"] == "ok-1"
     assert plr["created"] == "2026-08-13T10:00:00+00:00"
     assert plr["pending"] == 10
     assert plr["running"] == 30
