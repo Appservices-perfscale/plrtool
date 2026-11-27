@@ -78,8 +78,9 @@ class _Gantt:
     for one object, red starting exactly where blue ends).
     """
 
-    # 0 = pending (blue), 1 = running (red) - same colors as the gnuplot chart.
-    COLORS = ("#0000FF", "#FF0000")
+    # 0 = pending (blue), 1 = PLR running (red), 2 = TaskRun running (darker
+    # red), 3 = step (darkest red) - deeper nesting gets a deeper red.
+    COLORS = ("#0000FF", "#FF0000", "#B30000", "#660000")
 
     def __init__(self) -> None:
         self.rows: dict[str, list[tuple[dt.datetime, dt.datetime, int]]] = {}
@@ -128,7 +129,7 @@ class _Gantt:
         fig = plt.figure(figsize=(12, min(max(len(labels) * 0.4, 4.0), 40.0)), dpi=100)
         ax = fig.add_subplot(111)
         half = 0.3  # bar height 0.6, centered on the row
-        for color in (0, 1):
+        for color in range(len(self.COLORS)):
             verts = [
                 [(x0, y - half), (x1, y - half), (x1, y + half), (x0, y + half)]
                 for x0, x1, y, c in zip(x0s, x1s, ys, colors)
@@ -273,7 +274,7 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
             if gantt is not None:
                 gantt.add(f"TR {tr.pipeline_task}", tr.created, tr.started, 0)
                 if tr.started is not None:
-                    gantt.add(f"TR {tr.pipeline_task}", tr.started, tr.completed, 1)
+                    gantt.add(f"TR {tr.pipeline_task}", tr.started, tr.completed, 2)
             if tr.steps:
                 first_step: dt.datetime | None = None
                 if options.details:
@@ -286,7 +287,7 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
                             f"       {step.name!s:<35} {('n/a' if duration is None else str(duration) + 's'):>5}  {reason}"
                         )
                     if gantt is not None:
-                        gantt.add(f"Step {step.name}", step.started_at, step.finished_at, 1)
+                        gantt.add(f"Step {step.name}", step.started_at, step.finished_at, 3)
                     if step.started_at is not None and (
                         first_step is None or step.started_at < first_step
                     ):

@@ -104,8 +104,19 @@ def test_run_timing_gantt_pending_running_end_to_end(tmp_path, monkeypatch):
             created="2026-08-13T10:00:00Z",
             started="2026-08-13T10:00:10Z",
             completed="2026-08-13T10:00:40Z",
+            refs=("ok-1-build",),
         )
     )
+    store.add_taskrun(
+        raw_taskrun(
+            "ok-1-build",
+            created="2026-08-13T10:00:05Z",
+            started="2026-08-13T10:00:10Z",
+            completed="2026-08-13T10:00:40Z",
+            steps=(("build", "2026-08-13T10:00:15Z", "2026-08-13T10:00:35Z"),),
+        )
+    )
+    store.load()  # link the TaskRun onto the PLR record
     run_timing(store, TimingOptions(gantt_chart="chart.png"))
     pending = [c for c in captured if c[0] == "PLR ok-1" and c[3] == 0]
     running = [c for c in captured if c[0] == "PLR ok-1" and c[3] == 1]
@@ -114,6 +125,11 @@ def test_run_timing_gantt_pending_running_end_to_end(tmp_path, monkeypatch):
     assert pending[0][1].second == 0  # created
     assert running[0][2].second == 40  # completed
     assert pending[0][2] == running[0][1]  # red starts exactly where blue ends
+    # TaskRun runs in a darker red than the PLR, the step darker still.
+    tr_pending = [c for c in captured if c[0] == "TR build" and c[3] == 0]
+    tr_running = [c for c in captured if c[0] == "TR build" and c[3] == 2]
+    step = [c for c in captured if c[0] == "Step build" and c[3] == 3]
+    assert len(tr_pending) == 1 and len(tr_running) == 1 and len(step) == 1
 
 
 def test_run_timing_gantt_orders_plr_rows_by_start(tmp_path, monkeypatch):
