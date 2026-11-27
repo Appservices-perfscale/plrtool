@@ -220,6 +220,87 @@ def test_ka_client_logs_url_and_decoding():
     assert text == json.dumps({"metadata": {"name": "x"}, "ok": True})
 
 
+class FakeNewStyleKaApiClient:
+    """kubernetes>=37-style ApiClient: slim call_api, no legacy kwargs."""
+
+    def __init__(self, payload=None, status=200):
+        self.configuration = types.SimpleNamespace(
+            host="https://ka.example",
+            auth_settings=lambda: {
+                "BearerToken": {
+                    "type": "api_key",
+                    "in": "header",
+                    "key": "authorization",
+                    "value": "Bearer token",
+                }
+            },
+        )
+        self.calls = []
+        self.payload = (
+            payload
+            if payload is not None
+            else json.dumps({"metadata": {"name": "x"}, "ok": True}).encode()
+        )
+        self.status = status
+
+    def call_api(
+        self, method, url, header_params=None, body=None, post_params=None, _request_timeout=None
+    ):
+        self.calls.append((method, url, header_params))
+        payload = (
+            self.payload
+            if url.endswith("/log") or "?container=" in url
+            else json.dumps({"metadata": {"name": "x"}, "ok": True}).encode()
+        )
+        return types.SimpleNamespace(
+            status=self.status,
+            reason="reason",
+            data=payload,
+            read=lambda: payload,
+        )
+
+
+def test_ka_client_works_with_new_style_call_api():
+    """kubernetes>=37 dropped auth_settings/_preload_content from call_api."""
+    from plrtool.cluster import _KubeArchiveClient
+
+    api = FakeNewStyleKaApiClient(payload=b"line1\nline2\n")
+    client = _KubeArchiveClient(api)
+
+    # get_logs through the new-style call_api fallback
+    text = client.get_logs("ns-1", "pod-1", "step-clone")
+    assert text == "line1\nline2\n"
+    method, url, headers = api.calls[0]
+    assert method == "GET"
+    assert url == "https://ka.example/api/v1/namespaces/ns-1/pods/pod-1/log?container=step-clone"
+    assert headers == {"Accept": "text/plain", "authorization": "Bearer token"}
+
+    # object fetch through the same fallback
+    obj = client.get(
+        client.resources.get(api_version="tekton.dev/v1", kind="PipelineRun"),
+        namespace="ns-1",
+        name="plr-1",
+    )
+    assert obj["ok"] is True
+    assert api.calls[1][1] == (
+        "https://ka.example/apis/tekton.dev/v1/namespaces/ns-1/pipelineruns/plr-1"
+    )
+
+
+def test_ka_client_new_style_raises_api_exception_on_404():
+    from kubernetes.client.rest import ApiException
+
+    from plrtool.cluster import _KubeArchiveClient
+
+    api = FakeNewStyleKaApiClient(status=404)
+    client = _KubeArchiveClient(api)
+    try:
+        client.get_logs("ns-1", "pod-1", "step-clone")
+        raise AssertionError("expected ApiException")
+    except ApiException as exc:
+        assert exc.status == 404
+
+
 def test_get_logs_prefers_live_cluster():
     from plrtool.cluster import _KubeArchiveClient
 
@@ -228,13 +309,47 @@ def test_get_logs_prefers_live_cluster():
     cluster.ka_dyn = _KubeArchiveClient(api)
 
     class OkCore:
-        def read_namespaced_pod_log(self, name, namespace, container):
+        def read_namespaced_pod_log(self, name, namespace, container, _preload_content=True):
             # real CoreV1Api signature: name (pod) first, namespace second.
             return f"live-log:{namespace}/{name}/{container}"
 
     cluster.core = OkCore()
     assert cluster.get_logs("ns-1", "pod-1", "c-1") == "live-log:ns-1/pod-1/c-1"
     assert api.calls == []  # live cluster served the logs; KA never consulted
+
+
+def test_get_logs_decodes_live_response_bytes():
+    """Live fetch returns a response object; body bytes must become real text."""
+    cluster = object.__new__(Cluster)
+    cluster.ka_dyn = None
+
+    class BytesCore:
+        def read_namespaced_pod_log(self, name, namespace, container, _preload_content=True):
+            assert _preload_content is False  # deserialization must be bypassed
+            return types.SimpleNamespace(data=b"line1\nline2\n")
+
+    cluster.core = BytesCore()
+    assert cluster.get_logs("n", "p", "c") == "line1\nline2\n"
+
+
+def test_get_logs_live_payload_with_lazy_read():
+    """Response whose data is only filled by read() (kubernetes RESTResponse)."""
+    cluster = object.__new__(Cluster)
+    cluster.ka_dyn = None
+
+    class LazyCore:
+        def read_namespaced_pod_log(self, name, namespace, container, _preload_content=True):
+            resp = types.SimpleNamespace(status=200, data=None)
+
+            def read():
+                resp.data = b"lazy\nlog\n"
+                return resp.data
+
+            resp.read = read
+            return resp
+
+    cluster.core = LazyCore()
+    assert cluster.get_logs("n", "p", "c") == "lazy\nlog\n"
 
 
 def test_get_logs_falls_back_to_kubearchive():
@@ -247,7 +362,7 @@ def test_get_logs_falls_back_to_kubearchive():
     cluster.ka_dyn = _KubeArchiveClient(api)
 
     class FailCore:
-        def read_namespaced_pod_log(self, name, namespace, container):
+        def read_namespaced_pod_log(self, name, namespace, container, _preload_content=True):
             raise ApiException(status=404)
 
     cluster.core = FailCore()
@@ -262,7 +377,7 @@ def test_get_logs_returns_none_without_kubearchive():
     cluster.ka_dyn = None
 
     class FailCore:
-        def read_namespaced_pod_log(self, name, namespace, container):
+        def read_namespaced_pod_log(self, name, namespace, container, _preload_content=True):
             raise ApiException(status=404)
 
     cluster.core = FailCore()

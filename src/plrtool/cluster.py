@@ -272,6 +272,49 @@ class _KubeArchiveClient:
         """Finder for resource path tokens (mirrors DynamicClient.resources)."""
         return _KubeArchiveResources(self)
 
+    def _request(self, path: str, accept: str) -> Any:
+        """GET one KubeArchive endpoint; return a response whose ``data`` is bytes.
+
+        Works across kubernetes client generations: older ApiClient.call_api
+        takes auth_settings/_preload_content/_return_http_data_only directly,
+        while >= 37 dropped those kwargs (passing them raises TypeError) and
+        expects a pre-serialized request.  On both, non-2xx raises ApiException
+        so callers can treat 404 as "not archived".
+        """
+        headers = {"Accept": accept}
+        try:
+            return self.client.call_api(
+                path,
+                "GET",
+                header_params=headers,
+                auth_settings=["BearerToken"],
+                _preload_content=False,
+                _return_http_data_only=True,
+            )
+        except TypeError:
+            # kubernetes >= 37: call_api(method, url, header_params, ...) only;
+            # apply the bearer token and absolute URL ourselves.
+            auth = self.client.configuration.auth_settings().get("BearerToken")
+            if auth and auth.get("in") == "header":
+                headers[auth["key"]] = auth["value"]
+            url = self.client.configuration.host.rstrip("/") + path
+            response = self.client.call_api("GET", url, header_params=headers)
+            response.read()
+            self._raise_unless_ok(response)
+            return response
+
+    @staticmethod
+    def _raise_unless_ok(response: Any) -> None:
+        """Raise ApiException on non-2xx (legacy call_api path does this itself)."""
+        status = getattr(response, "status", None)
+        if isinstance(status, int) and not 200 <= status <= 299:
+            from kubernetes.client.rest import ApiException
+
+            body = getattr(response, "data", None)
+            exc = ApiException(status=status, reason=str(getattr(response, "reason", "")))
+            exc.body = body.decode("utf-8", errors="replace") if isinstance(body, bytes) else None
+            raise exc
+
     def get(self, resource: _KubeArchiveResource, namespace: str = "", name: str = "") -> dict:
         """Fetch one archived object as a plain dict; 404 raises ApiException.
 
@@ -286,14 +329,7 @@ class _KubeArchiveClient:
             )
         else:
             path = f"/api/{resource.version}/namespaces/{namespace}/{resource.resource}/{name}"
-        response = self.client.call_api(
-            path,
-            "GET",
-            header_params={"Accept": "application/json"},
-            auth_settings=["BearerToken"],
-            _preload_content=False,
-            _return_http_data_only=True,
-        )
+        response = self._request(path, "application/json")
         return _parse_ka_json(path, response)
 
     def list(self, resource: _KubeArchiveResource, namespace: str = "", **query: object) -> dict:
@@ -314,14 +350,7 @@ class _KubeArchiveClient:
             path = f"/api/{resource.version}/namespaces/{namespace}/{resource.resource}"
         if query:
             path = f"{path}?{urlencode(query)}"
-        response = self.client.call_api(
-            path,
-            "GET",
-            header_params={"Accept": "application/json"},
-            auth_settings=["BearerToken"],
-            _preload_content=False,
-            _return_http_data_only=True,
-        )
+        response = self._request(path, "application/json")
         return _parse_ka_json(path, response)
 
     def get_logs(self, namespace: str, pod: str, container: str) -> str:
@@ -334,15 +363,8 @@ class _KubeArchiveClient:
         """
         path = f"/api/v1/namespaces/{namespace}/pods/{pod}/log"
         query = urlencode({"container": container})
-        response = self.client.call_api(
-            f"{path}?{query}",
-            "GET",
-            header_params={"Accept": "text/plain"},
-            auth_settings=["BearerToken"],
-            _preload_content=False,
-            _return_http_data_only=True,
-        )
-        return response.data.decode("utf-8")
+        response = self._request(f"{path}?{query}", "text/plain")
+        return _log_text(response)
 
 
 def _build_ka_client_from_context(context: str) -> Any:
@@ -411,6 +433,30 @@ def _to_plain_dict(obj: Any) -> dict:
     if isinstance(obj, dict):
         return obj
     return dict(obj)
+
+
+def _log_text(payload: object) -> str:
+    """Normalize a fetched log payload to text, whatever the client returns.
+
+    Log endpoints are plain text, so no client deserialization is trusted
+    (kubernetes 36.0.x notably returns the body's bytes repr as str from
+    typed log methods).  Payloads may be str, bytes, or a response object
+    exposing ``data`` (urllib3 HTTPResponse / kubernetes RESTResponse).
+    Decoding uses errors="replace" because container logs routinely contain
+    non-UTF-8 bytes.
+    """
+    if isinstance(payload, str):
+        return payload
+    if isinstance(payload, (bytes, bytearray)):
+        return bytes(payload).decode("utf-8", errors="replace")
+    data = getattr(payload, "data", None)
+    if data is None and hasattr(payload, "read"):
+        data = payload.read()
+    if isinstance(data, (bytes, bytearray)):
+        return bytes(data).decode("utf-8", errors="replace")
+    if isinstance(data, str):
+        return data
+    raise ClusterError(f"cannot decode log payload of type {type(payload).__name__}")
 
 
 def _parse_ka_json(path: str, response: Any) -> dict:
@@ -690,13 +736,17 @@ class Cluster:
         Tries the live cluster first (CoreV1Api), then falls back to the
         KubeArchive logs endpoint so logs from pods that have already been
         cleaned off the live cluster but are archived are still recoverable.
+        The live fetch bypasses client deserialization (_preload_content=False)
+        and decodes the raw body itself, so the text is identical whichever
+        kubernetes client version is installed.
         """
         from kubernetes.client.rest import ApiException
 
         try:
-            return self.core.read_namespaced_pod_log(
-                name=pod, namespace=namespace, container=container
+            response = self.core.read_namespaced_pod_log(
+                name=pod, namespace=namespace, container=container, _preload_content=False
             )
+            return _log_text(response)
         except ApiException as exc:
             body = str(getattr(exc, "body", None) or "").strip()
             logger.debug(
