@@ -13,7 +13,7 @@ from .log import logger
 from .options import TimingOptions
 from .records import PLRRecord, PodRecord, TaskRunRecord
 from .ui import section
-from .utils import duration_seconds, epoch_of, fmt_ts, percentile
+from .utils import duration_seconds, epoch_of, fmt_ts, parse_ts_dt, percentile
 
 __all__ = ["cmd_timing", "run_timing"]
 
@@ -420,6 +420,38 @@ def _tr_details_entry(tr: TaskRunRecord) -> dict:
     }
 
 
+def _pod_scheduled_time(pod: PodRecord) -> dt.datetime | None:
+    """Return the lastTransitionTime of the PodScheduled=True condition, or None."""
+    for ctype, cstatus, _reason, ctime in pod.conditions:
+        if ctype == "PodScheduled" and cstatus == "True":
+            return parse_ts_dt(ctime)
+    return None
+
+
+def _pod_scheduling(pod: PodRecord) -> dict:
+    """Compute the pod scheduling split from the cached manifest, or Nones.
+
+    Buckets: creationTimestamp -> PodScheduled=True, PodScheduled=True ->
+    earliest container startedAt (kubelet startup + image pull), and the
+    container wall time (earliest startedAt -> latest finishedAt).
+    """
+    scheduled = _pod_scheduled_time(pod)
+    starts = [
+        started
+        for container in pod.containers
+        for started in (container.running_started, container.terminated_started)
+        if started is not None
+    ]
+    finishes = [c.terminated_finished for c in pod.containers if c.terminated_finished is not None]
+    first_start = min(starts) if starts else None
+    last_finish = max(finishes) if finishes else None
+    return {
+        "pod_created_to_scheduled": duration_seconds(pod.created, scheduled),
+        "pod_scheduled_to_first_start": duration_seconds(scheduled, first_start),
+        "pod_containers_wall": duration_seconds(first_start, last_finish),
+    }
+
+
 def _pod_details_entry(pod: PodRecord) -> dict:
     """Build the per-Pod details dict for --details-json (mirrors the printout)."""
     conditions = [
@@ -436,7 +468,13 @@ def _pod_details_entry(pod: PodRecord) -> dict:
         }
         for container in pod.containers
     ]
-    return {"name": pod.name, "node": pod.node, "conditions": conditions, "containers": containers}
+    return {
+        "name": pod.name,
+        "node": pod.node,
+        "conditions": conditions,
+        "containers": containers,
+        "scheduling": _pod_scheduling(pod),
+    }
 
 
 def _print_plr_header(rec: PLRRecord) -> None:
@@ -483,6 +521,18 @@ def _print_pod(pod: PodRecord) -> None:
         duration_text = "n/a" if duration is None else f"{duration}s"
         reason = container.terminated_reason or "n/a"
         print(f"         {container.name:<35} {duration_text:>5}  {reason}")
+    scheduling = _pod_scheduling(pod)
+
+    def _fmt_seconds(value: int | None) -> str:
+        return "n/a" if value is None else f"{value}s"
+
+    print(
+        f"       {YELLOW}Pod scheduling:{RESET} "
+        f"created->scheduled {_fmt_seconds(scheduling['pod_created_to_scheduled'])}, "
+        f"scheduled->first container start "
+        f"{_fmt_seconds(scheduling['pod_scheduled_to_first_start'])} (includes image pull), "
+        f"containers wall {_fmt_seconds(scheduling['pod_containers_wall'])}"
+    )
 
 
 def _write_summary(

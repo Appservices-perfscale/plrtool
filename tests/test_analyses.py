@@ -1,6 +1,7 @@
 """Unit tests for timing and errors analysis (cache only, no cluster needed)."""
 
 import json
+import re
 from datetime import UTC
 
 from helpers import raw_plr, raw_pod, raw_taskrun
@@ -357,6 +358,92 @@ def test_run_timing_details_json_writes_per_plr_document(tmp_path, capsys):
     assert tr["steps"][0]["name"] == "clone"
     assert tr["steps"][0]["duration"] == 3
     assert tr["pod"]["containers"][0]["duration"] == 1
+
+
+def test_run_timing_details_pod_scheduling_split(tmp_path, capsys):
+    """--details/--details-json report the per-Pod scheduling split, with nulls for missing data."""
+    store = CacheStore(tmp_path)
+    store.add_plr(
+        raw_plr(
+            "ok-1",
+            created="2026-08-13T10:00:00Z",
+            started="2026-08-13T10:00:10Z",
+            completed="2026-08-13T10:00:40Z",
+            refs=["ok-1-task-a", "ok-1-task-b", "ok-1-task-c"],
+        )
+    )
+    # Normal completed pod: init + main containers terminated, sidecar running.
+    store.add_taskrun(raw_taskrun("ok-1-task-a", pod="pod-a"))
+    store.add_pod(
+        raw_pod(
+            "pod-a",
+            created="2026-08-13T10:00:00Z",
+            conds=[("PodScheduled", "True", "-", "2026-08-13T10:00:02Z")],
+            init_containers=[
+                ("init", "Completed", "2026-08-13T10:00:04Z", "2026-08-13T10:00:06Z", 0)
+            ],
+            containers=[("main", "Completed", "2026-08-13T10:00:05Z", "2026-08-13T10:00:30Z", 0)],
+            running=[("sidecar", "2026-08-13T10:00:03Z")],
+        )
+    )
+    # Pod with only initContainerStatuses populated.
+    store.add_taskrun(raw_taskrun("ok-1-task-b", pod="pod-b"))
+    store.add_pod(
+        raw_pod(
+            "pod-b",
+            created="2026-08-13T10:00:08Z",
+            conds=[("PodScheduled", "True", "-", "2026-08-13T10:00:10Z")],
+            init_containers=[
+                ("init", "Completed", "2026-08-13T10:00:11Z", "2026-08-13T10:00:20Z", 0)
+            ],
+        )
+    )
+    # Pod with no PodScheduled condition: scheduling buckets become nulls.
+    store.add_taskrun(raw_taskrun("ok-1-task-c", pod="pod-c"))
+    store.add_pod(
+        raw_pod(
+            "pod-c",
+            created="2026-08-13T10:00:15Z",
+            containers=[("main", "Completed", "2026-08-13T10:00:18Z", "2026-08-13T10:00:25Z", 0)],
+        )
+    )
+    store.load()  # link TaskRun/Pod records onto the PLR
+    out_file = tmp_path / "details.json"
+    assert run_timing(store, TimingOptions(details=True, details_json=str(out_file))) == 0
+    out = capsys.readouterr().out
+    # Strip ANSI color codes so the scheduling lines can be matched as plain text.
+    out = re.sub(r"\x1b\[[0-9;]*m|\x1b\(B", "", out)
+    # Text: the scheduling line per pod, n/a when data are missing.
+    assert (
+        "Pod scheduling: created->scheduled 2s, "
+        "scheduled->first container start 1s (includes image pull), containers wall 27s" in out
+    )
+    assert (
+        "Pod scheduling: created->scheduled 2s, "
+        "scheduled->first container start 1s (includes image pull), containers wall 9s" in out
+    )
+    assert (
+        "Pod scheduling: created->scheduled n/a, "
+        "scheduled->first container start n/a (includes image pull), containers wall 7s" in out
+    )
+    document = json.loads(out_file.read_text(encoding="utf-8"))
+    pods = {tr["pod"]["name"]: tr["pod"] for tr in document["ok-1"]["taskruns"]}
+    # pod-a: earliest start is the running sidecar (10:00:03), latest finish 10:00:30.
+    assert pods["pod-a"]["scheduling"] == {
+        "pod_created_to_scheduled": 2,
+        "pod_scheduled_to_first_start": 1,
+        "pod_containers_wall": 27,
+    }
+    assert pods["pod-b"]["scheduling"] == {
+        "pod_created_to_scheduled": 2,
+        "pod_scheduled_to_first_start": 1,
+        "pod_containers_wall": 9,
+    }
+    assert pods["pod-c"]["scheduling"] == {
+        "pod_created_to_scheduled": None,
+        "pod_scheduled_to_first_start": None,
+        "pod_containers_wall": 7,
+    }
 
 
 def test_run_timing_details_labels_step_and_pod_sections(tmp_path, capsys):

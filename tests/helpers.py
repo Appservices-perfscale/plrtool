@@ -95,7 +95,15 @@ def raw_taskrun(
 
 
 def raw_pod(
-    name, ns="test-rhtap-1-tenant", phase="Succeeded", node="worker-1", conds=(), containers=()
+    name,
+    ns="test-rhtap-1-tenant",
+    phase="Succeeded",
+    node="worker-1",
+    conds=(),
+    containers=(),
+    created=None,
+    init_containers=(),
+    running=(),
 ):
     status_dict = {"phase": phase}
     if conds:
@@ -118,10 +126,33 @@ def raw_pod(
             }
             for cname, creason, cstart, cfinish, cexit in containers
         ]
+    if init_containers:
+        status_dict["initContainerStatuses"] = [
+            {
+                "name": cname,
+                "state": {
+                    "terminated": {
+                        "reason": creason,
+                        "startedAt": cstart,
+                        "finishedAt": cfinish,
+                        "exitCode": cexit,
+                    }
+                },
+            }
+            for cname, creason, cstart, cfinish, cexit in init_containers
+        ]
+    if running:
+        status_dict.setdefault("containerStatuses", []).extend(
+            {"name": rname, "state": {"running": {"startedAt": rstart}}}
+            for rname, rstart in running
+        )
+    metadata = {"name": name, "namespace": ns}
+    if created:
+        metadata["creationTimestamp"] = created
     return {
         "apiVersion": "v1",
         "kind": "Pod",
-        "metadata": {"name": name, "namespace": ns},
+        "metadata": metadata,
         "spec": {"nodeName": node},
         "status": status_dict,
     }

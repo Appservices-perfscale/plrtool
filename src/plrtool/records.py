@@ -51,6 +51,7 @@ class ContainerStatusRecord:
     terminated_finished: dt.datetime | None = None
     terminated_exit_code: int | None = None
     waiting_reason: str | None = None
+    running_started: dt.datetime | None = None
 
 
 @dataclass
@@ -61,6 +62,7 @@ class PodRecord:
     namespace: str = ""
     node: str | None = None
     phase: str | None = None
+    created: dt.datetime | None = None
     conditions: list = field(default_factory=list)  # (type, status, reason, time)
     containers: list[ContainerStatusRecord] = field(default_factory=list)
 
@@ -202,6 +204,7 @@ def parse_pod(raw: dict, namespace: str | None = None) -> PodRecord:
     ):
         state = container.get("state") or {}
         terminated = state.get("terminated") or {}
+        running = state.get("running") or {}
         waiting = state.get("waiting") or {}
         containers.append(
             ContainerStatusRecord(
@@ -211,6 +214,7 @@ def parse_pod(raw: dict, namespace: str | None = None) -> PodRecord:
                 terminated_finished=parse_ts_dt(terminated.get("finishedAt")),
                 terminated_exit_code=terminated.get("exitCode"),
                 waiting_reason=waiting.get("reason"),
+                running_started=parse_ts_dt(running.get("startedAt")),
             )
         )
     return PodRecord(
@@ -218,6 +222,7 @@ def parse_pod(raw: dict, namespace: str | None = None) -> PodRecord:
         namespace=meta.get("namespace") or namespace or "",
         node=(raw.get("spec") or {}).get("nodeName"),
         phase=status.get("phase"),
+        created=parse_ts_dt(meta.get("creationTimestamp")),
         conditions=conditions,
         containers=containers,
     )
