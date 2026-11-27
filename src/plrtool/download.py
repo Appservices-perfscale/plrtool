@@ -258,6 +258,8 @@ def cmd_download(args: argparse.Namespace) -> int:
         with_timing=(
             TimingOptions(
                 gantt_chart=args.gantt_chart,
+                gantt_taskruns=not args.gantt_no_taskruns,
+                gantt_steps=not args.gantt_no_steps,
                 summary=args.summary,
                 details=args.details,
                 details_json=args.details_json,

@@ -61,6 +61,8 @@ class TimingOptions:
     """Options for timing analysis (standalone or --with-timing passthrough)."""
 
     gantt_chart: str | None = None
+    gantt_taskruns: bool = True
+    gantt_steps: bool = True
     summary: str | None = None
     details: bool = False
     details_json: str | None = None

@@ -62,6 +62,16 @@ def add_timing_output_args(parser: argparse.ArgumentParser) -> None:
         help="render a Gantt chart to this PNG file (only when requested)",
     )
     parser.add_argument(
+        "--gantt-no-taskruns",
+        action="store_true",
+        help="omit TaskRun bars from the Gantt chart",
+    )
+    parser.add_argument(
+        "--gantt-no-steps",
+        action="store_true",
+        help="omit step bars from the Gantt chart",
+    )
+    parser.add_argument(
         "--summary",
         metavar="FILE",
         help="write aggregate timing stats as JSON to this file (only when requested)",

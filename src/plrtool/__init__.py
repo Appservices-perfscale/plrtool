@@ -14,7 +14,8 @@ Subcommands (see ``plrtool.cli`` / ``plrtool download --help``):
            [--with-errors] [--ka-context NAME] [--ka-conf FILE]
   wait     --cache DIR (--namespace NS --plr NAME | --csv FILE)
            [--concurrency N] [--timeout 100m] [--dump-completed]
-  timing   --cache DIR [--gantt-chart PATH] [--summary FILE]
+  timing   --cache DIR [--gantt-chart PATH [--gantt-no-taskruns]
+           [--gantt-no-steps]] [--summary FILE]
   errors   --cache DIR
   normalize FILE [--params-only]
 

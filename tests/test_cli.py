@@ -27,6 +27,12 @@ def test_cli_subcommand_help_and_defaults():
     timing_args = parse_cli(["timing", "--gantt-chart", "g.png", "--summary", "s.json"])
     assert timing_args.gantt_chart == "g.png"
     assert timing_args.summary == "s.json"
+    assert timing_args.gantt_no_taskruns is False
+    assert timing_args.gantt_no_steps is False
+
+    timing_args = parse_cli(["timing", "--gantt-no-taskruns", "--gantt-no-steps"])
+    assert timing_args.gantt_no_taskruns is True
+    assert timing_args.gantt_no_steps is True
     histogram_args = parse_cli(
         [
             "timing",

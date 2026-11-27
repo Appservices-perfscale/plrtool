@@ -276,7 +276,7 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
                 trs_earliest = tr.created
             if options.details:
                 _print_tr(tr)
-            if gantt is not None:
+            if gantt is not None and options.gantt_taskruns:
                 gantt.add(f"TR {tr.pipeline_task}", tr.created, tr.started, 0)
                 if tr.started is not None:
                     gantt.add(f"TR {tr.pipeline_task}", tr.started, tr.completed, 2)
@@ -291,7 +291,7 @@ def run_timing(store: CacheStore, options: TimingOptions) -> int:
                         print(
                             f"       {step.name!s:<35} {('n/a' if duration is None else str(duration) + 's'):>5}  {reason}"
                         )
-                    if gantt is not None:
+                    if gantt is not None and options.gantt_taskruns and options.gantt_steps:
                         gantt.add(f"Step {step.name}", step.started_at, step.finished_at, 3)
                     if step.started_at is not None and (
                         first_step is None or step.started_at < first_step
@@ -524,6 +524,8 @@ def cmd_timing(args: argparse.Namespace) -> int:
     store = CacheStore(Path(args.cache)).load()
     options = TimingOptions(
         gantt_chart=args.gantt_chart,
+        gantt_taskruns=not args.gantt_no_taskruns,
+        gantt_steps=not args.gantt_no_steps,
         summary=args.summary,
         details=args.details,
         details_json=args.details_json,

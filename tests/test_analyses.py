@@ -132,6 +132,59 @@ def test_run_timing_gantt_pending_running_end_to_end(tmp_path, monkeypatch):
     assert len(tr_pending) == 1 and len(tr_running) == 1 and len(step) == 1
 
 
+def test_run_timing_gantt_flags_drop_trs_and_steps(tmp_path, monkeypatch):
+    """--gantt-no-taskruns / --gantt-no-steps keep only PLR bars in the chart."""
+    from plrtool import timing as timing_mod
+
+    captured = []
+    monkeypatch.setattr(
+        timing_mod,
+        "_Gantt",
+        type(
+            "FakeGantt",
+            (),
+            {
+                "__init__": lambda self: None,
+                "add": lambda self, *a: captured.append(a),
+                "render": lambda self, *a: None,
+            },
+        ),
+    )
+    store = CacheStore(tmp_path)
+    store.add_plr(
+        raw_plr(
+            "ok-1",
+            created="2026-08-13T10:00:00Z",
+            started="2026-08-13T10:00:10Z",
+            completed="2026-08-13T10:00:40Z",
+            refs=["ok-1-build"],
+        )
+    )
+    store.add_taskrun(
+        raw_taskrun(
+            "ok-1-build",
+            steps=[("build", "2026-08-13T10:00:15Z", "2026-08-13T10:00:35Z")],
+        )
+    )
+    store.load()
+    run_timing(store, TimingOptions(gantt_chart="chart.png"))
+    assert [c[0] for c in captured] == [
+        "PLR ok-1",
+        "PLR ok-1",
+        "TR build",
+        "TR build",
+        "Step build",
+    ]
+
+    captured.clear()
+    run_timing(store, TimingOptions(gantt_chart="chart.png", gantt_steps=False))
+    assert [c[0] for c in captured] == ["PLR ok-1", "PLR ok-1", "TR build", "TR build"]
+
+    captured.clear()
+    run_timing(store, TimingOptions(gantt_chart="chart.png", gantt_taskruns=False))
+    assert [c[0] for c in captured] == ["PLR ok-1", "PLR ok-1"]
+
+
 def test_run_timing_gantt_orders_plr_rows_by_start(tmp_path, monkeypatch):
     """PLR rows on the Gantt Y-axis follow startTime, not creation order."""
     from plrtool import timing as timing_mod
