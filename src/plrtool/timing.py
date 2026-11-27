@@ -73,9 +73,11 @@ def _duration_stat(values: list) -> dict:
 class _Gantt:
     """Collects (label, start, end, color) segments and renders a matplotlib chart.
 
-    One horizontal row per label; repeated ``add`` calls for the same label draw
-    segments head-to-tail on that row (e.g. blue pending followed by red running
-    for one object, red starting exactly where blue ends).
+    One horizontal row per label; consecutive ``add`` calls with the same label
+    draw segments head-to-tail on that row (e.g. blue pending followed by red
+    running for one object). A repeated label that is *not* consecutive gets its
+    own row, so rows group under their parent (PLR, then its TRs, then each
+    TR's steps) in call order.
     """
 
     # 0 = pending (blue), 1 = PLR running (red), 2 = TaskRun running (darker
@@ -83,7 +85,7 @@ class _Gantt:
     COLORS = ("#0000FF", "#FF0000", "#B30000", "#660000")
 
     def __init__(self) -> None:
-        self.rows: dict[str, list[tuple[dt.datetime, dt.datetime, int]]] = {}
+        self.rows: list[tuple[str, list[tuple[dt.datetime, dt.datetime, int]]]] = []
 
     def add(
         self,
@@ -97,7 +99,10 @@ class _Gantt:
             return
         if end < start:
             start, end = end, start
-        self.rows.setdefault(label, []).append((start, end, color))
+        if self.rows and self.rows[-1][0] == label:
+            self.rows[-1][1].append((start, end, color))
+        else:
+            self.rows.append((label, [(start, end, color)]))
 
     def render(self, output: str) -> None:
         """Render the Gantt chart to the given PNG path."""
@@ -110,7 +115,7 @@ class _Gantt:
         from matplotlib.collections import PolyCollection
 
         matplotlib.use("Agg")
-        labels = list(self.rows)
+        labels = [label for label, _ in self.rows]
         # Flatten into parallel lists first: one vectorized date2num call and
         # two PolyCollection artists (one per color) render vastly faster than
         # one barh patch per segment (the old path took minutes on 40k PLRs).
@@ -118,7 +123,7 @@ class _Gantt:
         ends: list[dt.datetime] = []
         ys: list[int] = []
         colors: list[int] = []
-        for y, segments in enumerate(self.rows.values()):
+        for y, (_, segments) in enumerate(self.rows):
             for start, end, color in segments:
                 starts.append(start)
                 ends.append(end)

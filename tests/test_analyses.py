@@ -203,6 +203,31 @@ def test_gantt_render_valid_png(tmp_path):
     assert out.stat().st_size > 0
 
 
+def test_gantt_rows_group_repeated_labels_under_parent():
+    """Same label far apart gets its own row, so rows nest PLR -> TR -> steps."""
+    from datetime import datetime
+
+    from plrtool.timing import _Gantt
+
+    gantt = _Gantt()
+    t0 = datetime(2026, 8, 13, 10, 0, 0, tzinfo=UTC)
+    t1 = datetime(2026, 8, 13, 10, 1, 0, tzinfo=UTC)
+    for label in ("PLR a", "TR x", "Step clone", "PLR b", "TR x", "Step clone"):
+        gantt.add(label, t0, t1, 1)
+    # Consecutive same-label adds still merge into one row.
+    gantt.add("Step clone", t0, t1, 3)
+    assert [label for label, _ in gantt.rows] == [
+        "PLR a",
+        "TR x",
+        "Step clone",
+        "PLR b",
+        "TR x",
+        "Step clone",
+    ]
+    assert len(gantt.rows[5][1]) == 2  # consecutive Step adds merged
+    assert len(gantt.rows[2][1]) == 1  # non-consecutive ones stay separate rows
+
+
 def test_run_timing_per_pr_detail_gated_by_details(tmp_path, capsys):
     store = CacheStore(tmp_path)
     store.add_plr(
